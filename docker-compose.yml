@@ -1,0 +1,11 @@
+services:
+  db-admin:
+    build: .
+    container_name: uavpms-db-admin
+    restart: unless-stopped
+    env_file: [.env]
+    ports: ["127.0.0.1:3001:3000"]
+    networks: [uavpms-infra]
+networks:
+  uavpms-infra:
+    external: true
