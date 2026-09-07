@@ -7,6 +7,7 @@ const express = require("express"),
   helmet = require("helmet"),
   rateLimit = require("express-rate-limit");
 const { pool } = require("./db");
+const { sendLogin } = require("./views/login");
 const pgSession = require("connect-pg-simple")(session);
 function createApp() {
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
@@ -56,19 +57,15 @@ function createApp() {
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       (req.get("X-CSRF-Token") || req.body._csrf) !== req.session.csrf
-    )
+    ) {
+      if (req.path === "/login") return sendLogin(req, res, 403, "expired");
       return res
         .status(403)
         .json({ error: "Security token expired. Refresh the page." });
+    }
     next();
   });
-  app.get("/login", (req, res) =>
-    res
-      .type("html")
-      .send(
-        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · UAV PMS</title><link rel="stylesheet" href="/assets/style.css"></head><body class="login"><form method="post" action="/login" class="login-card"><div class="brand">UAV <span>PMS</span></div><h1>Database workspace</h1><p class="muted">Sign in to manage your team’s data.</p><input type="hidden" name="_csrf" value="${req.session.csrf}"><label>Username<input name="username" autocomplete="username" required autofocus></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button class="primary">Sign in →</button>${req.query.failed ? '<p role="alert">Sign in failed. Check your credentials.</p>' : ""}<p class="muted">Internal access · Restricted database account</p></form></body></html>`,
-      ),
-  );
+  app.get("/login", (req, res) => sendLogin(req, res, 200, req.query.failed ? "credentials" : ""));
   app.post(
     "/login",
     rateLimit({
@@ -76,9 +73,12 @@ function createApp() {
       max: 10,
       standardHeaders: true,
       legacyHeaders: false,
+      handler: (req, res) => sendLogin(req, res, 429, "limited"),
     }),
     async (req, res, next) => {
       try {
+        if (typeof req.body.username !== "string" || !req.body.username.trim() || typeof req.body.password !== "string" || !req.body.password) return sendLogin(req, res, 400, "missing");
+        if (!process.env.ADMIN_USERNAME || !/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(process.env.ADMIN_PASSWORD_HASH || "")) return sendLogin(req, res, 503, "configuration");
         const ok =
           typeof req.body.password === "string" &&
           req.body.username === process.env.ADMIN_USERNAME &&
@@ -87,7 +87,7 @@ function createApp() {
             req.body.password,
             process.env.ADMIN_PASSWORD_HASH,
           ));
-        if (!ok) return res.redirect("/login?failed=1");
+        if (!ok) return sendLogin(req, res, 401, "credentials");
         req.session.regenerate((err) => {
           if (err) return next(err);
           req.session.user = req.body.username;

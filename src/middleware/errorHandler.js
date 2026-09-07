@@ -1,3 +1,4 @@
+const { sendLogin } = require("../views/login");
 module.exports = (err, req, res, next) => {
   const messages = {
     23505: "A unique value already exists.",
@@ -21,6 +22,7 @@ module.exports = (err, req, res, next) => {
     }),
   );
   if (res.headersSent) return next(err);
+  if (req.path === "/login") return sendLogin(req, res, 503, "unavailable");
   res
     .status(trusted ? err.status : messages[err.code] ? 400 : 500)
     .json({
