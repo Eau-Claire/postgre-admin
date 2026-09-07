@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Table Editor · UAV PMS</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <div class="workspace">
+      <aside>
+        <div class="brand">
+          UAV <span>PMS</span><small>DATABASE WORKSPACE</small>
+        </div>
+        <div class="sidebar-label">TABLE EDITOR <span>public</span></div>
+        <input
+          id="table-search"
+          placeholder="Find a table…"
+          aria-label="Find a table"
+        />
+        <nav id="tables" aria-label="Database tables"></nav>
+        <div class="sidebar-bottom">
+          <span class="status-dot"></span> Restricted account<button
+            id="logout"
+          >
+            Sign out
+          </button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <div class="eyebrow">DATABASE / PUBLIC</div>
+            <h1 id="table-title">Table Editor</h1>
+            <p id="table-detail" class="muted">
+              Choose a table to explore your data.
+            </p>
+          </div>
+          <button id="add" class="primary" disabled>＋ Add row</button>
+        </header>
+        <div class="toolbar">
+          <form id="filter">
+            <select id="filter-column" aria-label="Filter column">
+              <option value="">All rows</option></select
+            ><select id="filter-op" aria-label="Filter operator">
+              <option value="contains">contains</option>
+              <option value="eq">equals</option>
+              <option value="null">is NULL</option>
+              <option value="notnull">is not NULL</option></select
+            ><input
+              id="filter-value"
+              placeholder="Filter value…"
+              aria-label="Filter value"
+            /><button>Apply</button
+            ><button type="button" id="reset">Reset</button>
+          </form>
+          <details id="visibility">
+            <summary>Columns</summary>
+            <div id="column-list"></div>
+          </details>
+          <button id="refresh" aria-label="Refresh table">↻ Refresh</button>
+        </div>
+        <p id="notice" class="notice" hidden></p>
+        <div id="message" role="status" aria-live="polite"></div>
+        <div class="grid-wrap" id="grid" aria-busy="false"></div>
+        <footer>
+          <span id="page-info">No table selected</span>
+          <div>
+            <label
+              >Rows
+              <select id="size">
+                <option>25</option>
+                <option>50</option>
+                <option>100</option>
+              </select></label
+            ><button id="prev" disabled>← Previous</button
+            ><button id="next" disabled>Next →</button>
+          </div>
+        </footer>
+      </main>
+    </div>
+    <dialog id="editor">
+      <form id="row-form">
+        <div class="drawer-header">
+          <div>
+            <div class="eyebrow">ROW EDITOR</div>
+            <h2 id="editor-title">Add row</h2>
+          </div>
+          <button type="button" id="close-editor" aria-label="Close editor">
+            ✕
+          </button>
+        </div>
+        <div id="fields"></div>
+        <p id="editor-error" class="error" role="alert"></p>
+        <div class="drawer-footer">
+          <button type="button" id="cancel-editor">Cancel</button
+          ><button class="primary" id="save">Save row</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="delete-dialog">
+      <h2>Delete this row?</h2>
+      <p>
+        This permanently deletes the row. Database cascade rules may also delete
+        related rows.
+      </p>
+      <p id="delete-error" class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="cancel-delete">Cancel</button
+        ><button id="confirm-delete" class="danger">Delete row</button>
+      </div>
+    </dialog>
+  </body>
+</html>

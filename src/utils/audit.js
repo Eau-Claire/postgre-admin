@@ -1,1 +1,11 @@
-module.exports = (admin, action, table, primaryKey) => console.log(JSON.stringify({ admin, action, table, primaryKey, timestamp: new Date().toISOString() }));
+// Never include row values, keys, request bodies or database error details.
+module.exports = (admin, action, table, affected) =>
+  console.log(
+    JSON.stringify({
+      admin,
+      action,
+      table,
+      affected,
+      timestamp: new Date().toISOString(),
+    }),
+  );

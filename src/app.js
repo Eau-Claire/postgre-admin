@@ -1,19 +1,124 @@
-require('dotenv').config();
-const express=require('express'),session=require('express-session'),bcrypt=require('bcryptjs'),helmet=require('helmet'),rateLimit=require('express-rate-limit');
-const pgSession=require('connect-pg-simple')(session);
-const {pool,qi,tables,columns,primaryKey}=require('./db');
-const auth=require('./middleware/auth');
-const errorHandler=require('./middleware/errorHandler');
-const audit=require('./utils/audit');
-const app=express(); app.use(helmet({contentSecurityPolicy:false})); app.use(express.urlencoded({extended:true}));
-app.use(session({store:new pgSession({pool,schemaName:'public',tableName:'session',createTableIfMissing:true}),secret:process.env.SESSION_SECRET||'dev-only-change-me',resave:false,saveUninitialized:false,cookie:{httpOnly:true,sameSite:'lax',secure:false,maxAge:8*3600000}}));
-const esc=x=>String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); const fmt=x=>x===null?'<span class="null">NULL</span>':typeof x==='object'?`<pre>${esc(JSON.stringify(x,null,2))}</pre>`:esc(x); const layout=(title,body,user)=>`<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width"><title>${esc(title)} · UAV PMS</title><style>body{font:15px system-ui;margin:0;background:#111827;color:#e5e7eb}main{max-width:1200px;margin:2rem auto;padding:0 1rem}a,button{color:#93c5fd}a{ text-decoration:none}nav{padding:1rem;background:#1f2937;display:flex;gap:1rem}table{width:100%;border-collapse:collapse;background:#1f2937}th,td{padding:.65rem;border-bottom:1px solid #374151;text-align:left;vertical-align:top}input,select,button{padding:.55rem;background:#111827;color:inherit;border:1px solid #4b5563;border-radius:4px}button{cursor:pointer}.card{background:#1f2937;padding:1rem;margin:.75rem 0;border-radius:6px}.null{color:#fbbf24;font-style:italic}pre{white-space:pre-wrap;max-width:35rem;margin:0}.danger{color:#fca5a5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem}</style></head><body>${user?`<nav><a href="/">Dashboard</a><a href="/tables">Tables</a><form method=post action=/logout><button>Logout</button></form></nav>`:''}<main>${body}</main></body></html>`;
-const valid=async t=>(await tables()).includes(t);
-app.get('/health',async(req,res)=>{try{await pool.query('SELECT 1');res.json({status:'healthy',database:'connected'})}catch(e){res.status(503).json({status:'unhealthy',database:'disconnected'})}});
-app.get('/login',(q,res)=>res.send(layout('Login',`<h1>UAV PMS Database Admin</h1><form method=post action=/login class=card><p><input name=username placeholder=Username required autofocus></p><p><input type=password name=password placeholder=Password required></p><button>Sign in</button></form>`)));
-app.post('/login',rateLimit({windowMs:15*60e3,max:10,standardHeaders:true,legacyHeaders:false}),async(req,res)=>{const ok=req.body.username===process.env.ADMIN_USERNAME&&process.env.ADMIN_PASSWORD_HASH&&await bcrypt.compare(req.body.password,process.env.ADMIN_PASSWORD_HASH); if(ok){req.session.user=req.body.username;return res.redirect('/tables')}res.status(401).send(layout('Login','<h1>Sign in failed</h1><a href=/login>Try again</a>'))}); app.post('/logout',(req,res)=>req.session.destroy(()=>res.redirect('/login')));
-app.get('/',auth,async(req,res)=>{try{const ts=await tables();const stats=await Promise.all(ts.map(t=>pool.query(`SELECT count(*)::int n FROM ${qi(t)}`).then(x=>x.rows[0].n)));let version=(await pool.query('SELECT version()')).rows[0].version;let postgis='Unavailable';try{postgis=(await pool.query("SELECT PostGIS_Version() v")).rows[0].v}catch{} res.send(layout('Dashboard',`<h1>Dashboard</h1><div class=grid><div class=card>Database<br><b>Connected</b></div><div class=card>Database name<br><b>${esc(process.env.DB_NAME)}</b></div><div class=card>Application tables<br><b>${ts.length}</b></div><div class=card>Approx. rows<br><b>${stats.reduce((a,b)=>a+b,0)}</b></div></div><div class=card>PostgreSQL: ${esc(version)}<br>PostGIS: ${esc(postgis)}</div>`,req.session.user))}catch(e){res.status(500).send(layout('Error','<h1>Database unavailable</h1>'))}});
-app.get('/tables',auth,async(req,res)=>{const ts=await tables();const rows=await Promise.all(ts.map(async t=>({t,n:(await pool.query(`SELECT count(*)::int n FROM ${qi(t)}`)).rows[0].n})));res.send(layout('Tables',`<h1>Tables</h1>${rows.map(x=>`<div class=card><a href="/tables/${encodeURIComponent(x.t)}"><b>${esc(x.t)}</b></a> · ${x.n} rows · <a href="/tables/${encodeURIComponent(x.t)}">Browse</a></div>`).join('')}${ts.includes('Users')?'<p class=danger>Application users should normally be created and managed through the UAV PMS application/API. Direct database editing may bypass password hashing, role assignment, validation, and audit logic.</p>':''}`,req.session.user))});
-app.get('/tables/:table',auth,async(req,res)=>{const t=req.params.table;if(!await valid(t))return res.status(404).send('Table not found');const cs=await columns(t),pk=cs.filter(c=>c.is_pk),size=[25,50,100].includes(+req.query.size)?+req.query.size:50,page=Math.max(1,+req.query.page||1),offset=(page-1)*size;let where='',params=[];if(req.query.column&&req.query.value!==undefined&&cs.some(c=>c.column_name===req.query.column)){where=` WHERE ${qi(req.query.column)}=$1`;params=[req.query.value]}const data=(await pool.query(`SELECT * FROM ${qi(t)}${where} LIMIT ${size} OFFSET ${offset}`,params)).rows;res.send(layout(t,`<h1>${esc(t)}</h1><form><select name=column><option value="">Filter column</option>${cs.map(c=>`<option>${esc(c.column_name)}</option>`).join('')}</select><input name=value placeholder="Exact value"><select name=size><option>25</option><option selected>50</option><option>100</option></select><button>Filter</button></form><table><tr>${cs.map(c=>`<th>${esc(c.column_name)}</th>`).join('')}<th>Actions</th></tr>${data.map(r=>`<tr>${cs.map(c=>`<td>${fmt(r[c.column_name])}</td>`).join('')}<td>${pk.length?`<a href="/tables/${encodeURIComponent(t)}/row/${encodeURIComponent(String(r[pk[0].column_name]))}">Details</a>`:'Read-only (no primary key)'}</td></tr>`).join('')}</table><p><a href="?page=${page-1}&size=${size}">Previous</a> · Page ${page} · <a href="?page=${page+1}&size=${size}">Next</a></p>`,req.session.user))});
-app.get('/tables/:table/row/:key',auth,async(req,res)=>{const t=req.params.table;if(!await valid(t))return res.status(404).send('Not found');const cs=await columns(t),pk=cs.filter(c=>c.is_pk);if(pk.length!==1)return res.status(400).send('Details require exactly one primary-key column');const r=(await pool.query(`SELECT * FROM ${qi(t)} WHERE ${qi(pk[0].column_name)}=$1`,[req.params.key])).rows[0];if(!r)return res.status(404).send('Row not found');res.send(layout('Row',`<h1>${esc(t)} row</h1><div class=card>${cs.map(c=>`<p><b>${esc(c.column_name)}</b><br>${fmt(r[c.column_name])}</p>`).join('')}</div>`,req.session.user))});
-app.use(errorHandler);app.listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('UAV PMS DB admin listening'));
+require("dotenv").config();
+const path = require("node:path"),
+  crypto = require("node:crypto");
+const express = require("express"),
+  session = require("express-session"),
+  bcrypt = require("bcryptjs"),
+  helmet = require("helmet"),
+  rateLimit = require("express-rate-limit");
+const { pool } = require("./db");
+const pgSession = require("connect-pg-simple")(session);
+function createApp() {
+  if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
+    throw new Error("SESSION_SECRET must contain at least 32 characters");
+  const app = express();
+  if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
+  app.use(helmet());
+  app.get("/health", async (req, res) => {
+    try {
+      await pool.query("SELECT 1");
+      res.json({ status: "healthy", database: "connected" });
+    } catch {
+      res.status(503).json({ status: "unhealthy", database: "disconnected" });
+    }
+  });
+  app.use(
+    "/assets",
+    express.static(path.join(__dirname, "public"), { index: false }),
+  );
+  app.use(
+    express.urlencoded({ extended: false, limit: "1mb" }),
+    express.json({ limit: "1mb" }),
+  );
+  app.use(
+    session({
+      store: new pgSession({
+        pool,
+        schemaName: "public",
+        tableName: "session",
+        createTableIfMissing: false,
+      }),
+      secret: process.env.SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.COOKIE_SECURE === "true",
+        maxAge: 8 * 3600000,
+      },
+    }),
+  );
+  app.use((req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    if (!req.session.csrf)
+      req.session.csrf = crypto.randomBytes(32).toString("hex");
+    if (
+      !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+      (req.get("X-CSRF-Token") || req.body._csrf) !== req.session.csrf
+    )
+      return res
+        .status(403)
+        .json({ error: "Security token expired. Refresh the page." });
+    next();
+  });
+  app.get("/login", (req, res) =>
+    res
+      .type("html")
+      .send(
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · UAV PMS</title><link rel="stylesheet" href="/assets/style.css"></head><body class="login"><form method="post" action="/login" class="login-card"><div class="brand">UAV <span>PMS</span></div><h1>Database workspace</h1><p class="muted">Sign in to manage your team’s data.</p><input type="hidden" name="_csrf" value="${req.session.csrf}"><label>Username<input name="username" autocomplete="username" required autofocus></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button class="primary">Sign in →</button>${req.query.failed ? '<p role="alert">Sign in failed. Check your credentials.</p>' : ""}<p class="muted">Internal access · Restricted database account</p></form></body></html>`,
+      ),
+  );
+  app.post(
+    "/login",
+    rateLimit({
+      windowMs: 15 * 60e3,
+      max: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+    async (req, res, next) => {
+      try {
+        const ok =
+          typeof req.body.password === "string" &&
+          req.body.username === process.env.ADMIN_USERNAME &&
+          process.env.ADMIN_PASSWORD_HASH &&
+          (await bcrypt.compare(
+            req.body.password,
+            process.env.ADMIN_PASSWORD_HASH,
+          ));
+        if (!ok) return res.redirect("/login?failed=1");
+        req.session.regenerate((err) => {
+          if (err) return next(err);
+          req.session.user = req.body.username;
+          req.session.csrf = crypto.randomBytes(32).toString("hex");
+          req.session.save((err) =>
+            err ? next(err) : res.redirect("/tables"),
+          );
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+  app.post("/logout", (req, res, next) =>
+    req.session.destroy((err) => {
+      if (err) return next(err);
+      res.clearCookie("connect.sid");
+      res.json({ ok: true });
+    }),
+  );
+  app.use("/api", require("./routes/api"));
+  app.get(
+    ["/", "/tables", "/tables/:table"],
+    require("./middleware/auth"),
+    (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")),
+  );
+  app.use(require("./middleware/errorHandler"));
+  return app;
+}
+if (require.main === module)
+  createApp().listen(process.env.PORT || 3000, "0.0.0.0", () =>
+    console.log("UAV PMS DB admin listening"),
+  );
+module.exports = { createApp };
