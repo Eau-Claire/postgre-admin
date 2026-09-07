@@ -6,6 +6,7 @@ const pool = new Pool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   max: 5,
+  connectionTimeoutMillis: 5000,
   statement_timeout: 15000,
 });
 const qi = (s) => '"' + String(s).replaceAll('"', '""') + '"';

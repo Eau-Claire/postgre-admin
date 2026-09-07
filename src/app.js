@@ -9,12 +9,17 @@ const express = require("express"),
 const { pool } = require("./db");
 const { sendLogin } = require("./views/login");
 const pgSession = require("connect-pg-simple")(session);
-function createApp() {
+function createApp({ sessionStore } = {}) {
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
     throw new Error("SESSION_SECRET must contain at least 32 characters");
   const app = express();
   if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
-  app.use(helmet());
+  const secureCookies = process.env.COOKIE_SECURE === "true";
+  app.use(helmet({
+    // Local HTTP deployments must not upgrade form/asset requests to HTTPS.
+    contentSecurityPolicy: { directives: { "upgrade-insecure-requests": secureCookies ? [] : null } },
+    strictTransportSecurity: secureCookies ? undefined : false,
+  }));
   app.get("/health", async (req, res) => {
     try {
       await pool.query("SELECT 1");
@@ -33,7 +38,7 @@ function createApp() {
   );
   app.use(
     session({
-      store: new pgSession({
+      store: sessionStore || new pgSession({
         pool,
         schemaName: "public",
         tableName: "session",
