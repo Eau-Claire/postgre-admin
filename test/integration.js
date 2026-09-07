@@ -36,6 +36,27 @@ CREATE TABLE public."FixtureRows" ("Id" integer GENERATED ALWAYS AS IDENTITY PRI
 CREATE TABLE public."FixtureComposite" ("A" text, "B" text, "Value" text, PRIMARY KEY ("A","B"));
 CREATE TABLE public.session (sid varchar PRIMARY KEY, sess json NOT NULL, expire timestamp NOT NULL);
 GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO fixture_admin; GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO fixture_admin;`);
+
+    await owner.query(
+      'ALTER TABLE public."FixtureComposite" ADD CONSTRAINT "SelfComposite" FOREIGN KEY ("A","B") REFERENCES public."FixtureComposite" ("A","B")',
+    );
+    const explorer = require("../src/schema-explorer");
+    const overview = await explorer.overview();
+    assert.ok(overview.tables.some((t) => t.name === "FixtureRows"));
+    assert.ok(!overview.tables.some((t) => t.name === "session"));
+    const fk = overview.relationships.find((r) => r.source === "FixtureRows");
+    assert.deepEqual(fk.columns, ["ParentId"]);
+    assert.deepEqual(fk.targetColumns, ["Id"]);
+    const compositeLink = overview.relationships.find(
+      (r) => r.name === "SelfComposite",
+    );
+    assert.deepEqual(compositeLink.columns, ["A", "B"]);
+    assert.deepEqual(compositeLink.targetColumns, ["A", "B"]);
+    const def = await explorer.definition("FixtureRows");
+    assert.match(def.sql, /GENERATED ALWAYS AS IDENTITY/);
+    assert.match(def.sql, /FOREIGN KEY/);
+    assert.ok(def.indexes.length > 0);
+    await assert.rejects(explorer.definition("session"), /not found/);
     const meta = await schema("FixtureRows");
     assert.equal(meta.columns.length, 10);
     assert.equal(

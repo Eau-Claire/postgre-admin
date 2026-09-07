@@ -80,3 +80,9 @@ DB_HOST=127.0.0.1 DB_PORT=55439 DB_NAME=postgres DB_USER=fixture_admin DB_PASSWO
 This creates and resets synthetic `Fixture*` tables, a test session table, and a restricted fixture role. Never point it at an existing database. Stop and remove the disposable container afterward.
 
 Validation in this change: six query/security unit tests, restricted-account integration tests against disposable PostgreSQL 16/PostGIS 3.4, and Docker build plus non-root health/login/static-asset smoke tests passed. Browser visual QA remains pending because no connected browser was available. The existing dependency lockfile currently reports three moderate npm audit findings in the Express/body-parser/qs chain; automatic remediation proposed downgrades and was not retained. Review a compatible patched dependency set as a follow-up.
+
+## SQL Schema explorer
+
+Choose **SQL Schema** in the sidebar to inspect database structure at `/schema`. The read-only diagram shows accessible public tables, primary keys and foreign-key arrows (including composite and self-referencing foreign keys). Select a table to focus on its neighbors, inspect related tables, or switch to all tables and change zoom. The canvas scrolls for larger schemas; the relationship list also exposes the column mappings without relying on the diagram.
+
+The definition panel shows a CREATE TABLE-style catalog reference, constraints, indexes and PostgreSQL enum values, with a link back to the row editor. This is documentation, not a full migration/export: dependent types/sequences, partitions, storage options, policies and grants are not reconstructed. Cross-schema or inaccessible targets are omitted from the diagram; the selected table's constraint definitions may still mention them. The explorer reads catalog metadata only, uses the existing session/account restrictions, and offers no SQL execution or schema modification.

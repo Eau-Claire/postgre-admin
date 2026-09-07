@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>SQL Schema · UAV PMS</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/schema.css" />
+    <script src="/assets/schema.js" defer></script>
+  </head>
+  <body>
+    <div class="workspace">
+      <aside>
+        <div class="brand">
+          UAV <span>PMS</span><small>DATABASE WORKSPACE</small>
+        </div>
+        <a class="schema-link" href="/tables">▦ Table Editor</a
+        ><a class="schema-link active" href="/schema" aria-current="page"
+          >◇ SQL Schema</a
+        >
+        <div class="sidebar-label">PUBLIC TABLES</div>
+        <input
+          id="schema-search"
+          placeholder="Find a table…"
+          aria-label="Find a table"
+        />
+        <nav id="schema-tables" aria-label="Schema tables"></nav>
+        <div class="sidebar-bottom">Metadata only · Read-only</div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <div class="eyebrow">DATABASE / STRUCTURE</div>
+            <h1>SQL Schema</h1>
+            <p id="schema-summary" class="muted">
+              Explore tables and foreign-key relationships.
+            </p>
+          </div>
+          <button id="schema-refresh">↻ Refresh</button>
+        </header>
+        <div class="schema-toolbar">
+          <label
+            >View
+            <select id="schema-scope">
+              <option value="related">Selected table + neighbors</option>
+              <option value="all">All tables</option>
+            </select></label
+          ><label
+            >Zoom
+            <select id="schema-zoom">
+              <option value="0.65">65%</option>
+              <option value="1" selected>100%</option>
+              <option value="1.25">125%</option>
+            </select></label
+          ><span class="muted"
+            >PK = primary key · FK arrows point to the referenced table</span
+          >
+        </div>
+        <p id="schema-status" role="status" aria-live="polite"></p>
+        <div class="schema-layout">
+          <section class="diagram-panel" aria-label="Relationship diagram">
+            <div
+              id="schema-canvas"
+              tabindex="0"
+              aria-label="Scrollable schema diagram"
+            >
+              <svg
+                id="schema-diagram"
+                xmlns="http://www.w3.org/2000/svg"
+                role="img"
+                aria-label="Public table relationships"
+              ></svg>
+            </div>
+          </section>
+          <section class="definition-panel">
+            <div class="definition-heading">
+              <h2 id="definition-title">Select a table</h2>
+              <a id="browse-table" href="/tables">Browse rows →</a>
+            </div>
+            <p class="muted">
+              Catalog reference, not a full migration. Nothing here executes
+              SQL.
+            </p>
+            <div id="definition-status" role="status"></div>
+            <details open>
+              <summary>SQL definition</summary>
+              <pre id="schema-sql"></pre>
+            </details>
+            <details>
+              <summary>Indexes</summary>
+              <pre id="schema-indexes"></pre>
+            </details>
+            <h3>Relationships</h3>
+            <div id="schema-relations"></div>
+            <h3>Enum values</h3>
+            <div id="schema-enums"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

@@ -227,8 +227,16 @@ summary {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 30px;
   padding: 5px;
   overflow-wrap: anywhere;
+}
+#column-list label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  padding: 0;
 }
 .notice {
   background: #edf3f0;
@@ -550,3 +558,5 @@ dialog::backdrop {
     border-radius: 0;
   }
 }
+
+.schema-link{display:block;text-decoration:none;color:#52675d;padding:10px;border-radius:7px;margin-bottom:8px;font-weight:600}.schema-link:hover,.schema-link.active{background:#e5f4ec;color:#087f5b}

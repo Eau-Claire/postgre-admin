@@ -129,6 +129,7 @@ function createApp({ sessionStore } = {}) {
     require("./middleware/auth"),
     (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")),
   );
+  app.get("/schema", require("./middleware/auth"), (req,res)=>res.sendFile(path.join(__dirname,"public","schema.html")));
   app.use(require("./middleware/errorHandler"));
   return app;
 }

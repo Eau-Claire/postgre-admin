@@ -11,6 +11,18 @@ router.use((req, res, next) =>
     : res.status(401).json({ error: "Session expired. Please sign in again." }),
 );
 router.get(
+  "/schema",
+  wrap(async (req, res) =>
+    res.json(await require("../schema-explorer").overview()),
+  ),
+);
+router.get(
+  "/tables/:table/definition",
+  wrap(async (req, res) =>
+    res.json(await require("../schema-explorer").definition(req.params.table)),
+  ),
+);
+router.get(
   "/tables",
   wrap(async (req, res) =>
     res.json({ tables: await tables(), csrf: req.session.csrf }),
