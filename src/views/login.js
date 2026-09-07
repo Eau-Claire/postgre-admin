@@ -1,5 +1,6 @@
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const messages = {
+  transport: 'Ứng dụng yêu cầu cookie HTTPS nhưng bạn đang truy cập qua HTTP. Hãy dùng địa chỉ HTTPS qua reverse proxy; nếu chạy nội bộ bằng HTTP, đặt COOKIE_SECURE=false rồi tạo lại container.',
   credentials: 'Tên đăng nhập hoặc mật khẩu không đúng. Vui lòng kiểm tra và thử lại.',
   missing: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.',
   expired: 'Phiên đăng nhập đã hết hạn. Vui lòng thử đăng nhập lại.',

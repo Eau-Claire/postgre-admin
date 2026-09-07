@@ -55,3 +55,23 @@ test('HTTP login supports visible errors, session cookies and successful redirec
     for(const [k,v] of Object.entries(original))v===undefined?delete process.env[k]:process.env[k]=v;
   }
 });
+
+test('secure-cookie misconfiguration on HTTP shows a visible error without forcing HTTPS', async () => {
+  const previous={secret:process.env.SESSION_SECRET,secure:process.env.COOKIE_SECURE};
+  process.env.SESSION_SECRET='test-only-secret-at-least-32-characters';
+  process.env.COOKIE_SECURE='true';
+  const server=createApp({sessionStore:new session.MemoryStore()}).listen(0,'127.0.0.1');
+  await new Promise(resolve=>server.once('listening',resolve));
+  try {
+    const response=await fetch('http://127.0.0.1:'+server.address().port+'/login');
+    assert.equal(response.status,503);
+    const csp=response.headers.get('content-security-policy');
+    assert.ok(!csp.includes('upgrade-insecure-requests'));
+    assert.ok(csp.includes("form-action 'self'"));
+    assert.equal(response.headers.get('strict-transport-security'),null);
+    assert.match(await response.text(),/COOKIE_SECURE=false/);
+  } finally {
+    await new Promise(resolve=>server.close(resolve));
+    for(const [k,v] of [['SESSION_SECRET',previous.secret],['COOKIE_SECURE',previous.secure]])v===undefined?delete process.env[k]:process.env[k]=v;
+  }
+});

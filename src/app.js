@@ -15,11 +15,14 @@ function createApp({ sessionStore } = {}) {
   const app = express();
   if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
   const secureCookies = process.env.COOKIE_SECURE === "true";
-  app.use(helmet({
-    // Local HTTP deployments must not upgrade form/asset requests to HTTPS.
-    contentSecurityPolicy: { directives: { "upgrade-insecure-requests": secureCookies ? [] : null } },
-    strictTransportSecurity: secureCookies ? undefined : false,
-  }));
+  const httpSecurity = helmet({
+    contentSecurityPolicy: { directives: { "upgrade-insecure-requests": null } },
+    strictTransportSecurity: false,
+  });
+  const httpsSecurity = helmet();
+  // Use the actual transport (including an explicitly trusted proxy), not
+  // the cookie preference, to decide whether HTTPS upgrades are appropriate.
+  app.use((req, res, next) => (req.secure ? httpsSecurity : httpSecurity)(req, res, next));
   app.get("/health", async (req, res) => {
     try {
       await pool.query("SELECT 1");
@@ -36,6 +39,13 @@ function createApp({ sessionStore } = {}) {
     express.urlencoded({ extended: false, limit: "1mb" }),
     express.json({ limit: "1mb" }),
   );
+  app.use((req, res, next) => {
+    if (req.path === "/login" && secureCookies && !req.secure) {
+      res.set("Cache-Control", "no-store");
+      return sendLogin(req, res, 503, "transport");
+    }
+    next();
+  });
   app.use(
     session({
       store: sessionStore || new pgSession({
