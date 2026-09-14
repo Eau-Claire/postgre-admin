@@ -14,13 +14,17 @@
     return e;
   };
 
-  const POSITIONS_KEY = "uavpms_schema_positions";
+  const POSITIONS_KEY = "uavpms_schema_positions_manhattan_v1";
+  const CARD_WIDTH = 250;
+  const COL_PITCH = 340;
+  const ROW_GAP = 36;
+
   let data = { tables: [], relationships: [] },
     selected = "",
+    hoveredTable = "",
     version = 0,
     refreshVersion = 0,
-    positions = new Map(), // name -> { x, y, h }
-    activeTables = [];
+    positions = new Map();
 
   function getSavedPositions() {
     try {
@@ -55,23 +59,119 @@
   }
 
   function sidebar() {
-    $("schema-tables").replaceChildren();
+    const list = $("schema-tables");
+    list.replaceChildren();
     const query = $("schema-search").value.toLowerCase();
     const visible = data.tables.filter((t) =>
       t.name.toLowerCase().includes(query),
     );
-    if ($("schema-table-count")) {
-      $("schema-table-count").textContent = data.tables.length;
-    }
+    $("schema-table-count").textContent = String(visible.length);
     for (const t of visible) {
-      const b = node("button", "▦ " + t.name);
+      const b = node("button", t.name);
       b.className = t.name === selected ? "active" : "";
       b.onclick = () => select(t.name);
-      $("schema-tables").append(b);
+      list.append(b);
     }
     if (!visible.length) {
-      $("schema-tables").append(node("p", "No matching tables."));
+      list.append(node("p", "No matching public tables."));
     }
+  }
+
+  // Hierarchical DAG column layout (mimics Supabase clean arrangement)
+  function computeHierarchicalLayout(tables) {
+    const outgoing = new Map();
+    const incoming = new Map();
+    for (const t of tables) {
+      outgoing.set(t.name, new Set());
+      incoming.set(t.name, new Set());
+    }
+
+    for (const r of data.relationships) {
+      if (outgoing.has(r.source) && incoming.has(r.target) && r.source !== r.target) {
+        outgoing.get(r.source).add(r.target);
+        incoming.get(r.target).add(r.source);
+      }
+    }
+
+    // Assign layers (0 = referencing child, 1 = intermediate, 2 = referenced parent)
+    const layers = new Map();
+    for (const t of tables) {
+      if (outgoing.get(t.name).size === 0 && incoming.get(t.name).size > 0) {
+        layers.set(t.name, 2);
+      } else if (outgoing.get(t.name).size > 0 && incoming.get(t.name).size > 0) {
+        layers.set(t.name, 1);
+      } else {
+        layers.set(t.name, 0);
+      }
+    }
+
+    const layerBuckets = [[], [], []];
+    for (const t of tables) {
+      const l = layers.get(t.name) ?? 0;
+      layerBuckets[l].push(t);
+    }
+
+    // Evenly distribute if single column
+    if (layerBuckets[1].length === 0 && layerBuckets[2].length === 0 && layerBuckets[0].length > 3) {
+      const all = layerBuckets[0];
+      layerBuckets[0] = all.slice(0, Math.ceil(all.length / 3));
+      layerBuckets[1] = all.slice(Math.ceil(all.length / 3), Math.ceil((2 * all.length) / 3));
+      layerBuckets[2] = all.slice(Math.ceil((2 * all.length) / 3));
+    }
+
+    let startX = 50;
+    layerBuckets.forEach((bucket, colIdx) => {
+      let currentY = 40;
+      bucket.forEach((t) => {
+        const colCount = Math.min(t.columns.length, 14);
+        const cardHeight = 34 + colCount * 28 + 8;
+        positions.set(t.name, {
+          x: startX + colIdx * COL_PITCH,
+          y: currentY,
+          h: cardHeight,
+        });
+        currentY += cardHeight + ROW_GAP;
+      });
+    });
+  }
+
+  // Orthogonal stepped Manhattan path with 90° rounded corners (exact match to user image)
+  function buildOrthogonalPath(x1, y1, x2, y2) {
+    const r = 5; // corner radius
+    const dy = y2 - y1;
+    const dx = x2 - x1;
+
+    if (Math.abs(dy) < 3) {
+      return `M ${x1} ${y1} L ${x2} ${y2}`;
+    }
+
+    const midX = Math.round((x1 + x2) / 2);
+    const sgnY = dy > 0 ? 1 : -1;
+    const sgnX = dx > 0 ? 1 : -1;
+    const c = Math.min(r, Math.abs(midX - x1) / 2, Math.abs(dy) / 2);
+
+    return (
+      `M ${x1} ${y1} ` +
+      `L ${midX - sgnX * c} ${y1} ` +
+      `Q ${midX} ${y1}, ${midX} ${y1 + sgnY * c} ` +
+      `L ${midX} ${y2 - sgnY * c} ` +
+      `Q ${midX} ${y2}, ${midX + sgnX * c} ${y2} ` +
+      `L ${x2} ${y2}`
+    );
+  }
+
+  function buildOuterPath(x1, y1, x2, y2, outerX) {
+    const r = 5;
+    const dy = y2 - y1;
+    const sgnY = dy > 0 ? 1 : -1;
+    return (
+      `M ${x1} ${y1} ` +
+      `L ${outerX - r} ${y1} ` +
+      `Q ${outerX} ${y1}, ${outerX} ${y1 + sgnY * r} ` +
+      `L ${outerX} ${y2 - sgnY * r} ` +
+      `Q ${outerX} ${y2}, ${outerX - r} ${y2} ` +
+      `L ${x2} ${y2}`
+    );
   }
 
   function drawRelationshipLines() {
@@ -79,38 +179,35 @@
     if (!rootSvg) return;
 
     const linesMode = $("schema-lines-mode")?.value || "selected";
-
-    // Keep defs
     const defs = rootSvg.querySelector("defs");
     rootSvg.replaceChildren();
     if (defs) rootSvg.append(defs);
 
     if (linesMode === "none") return;
 
-    const CARD_WIDTH = 280;
+    const activeTable = hoveredTable || selected;
 
     for (const r of data.relationships) {
       const posA = positions.get(r.source);
       const posB = positions.get(r.target);
       if (!posA || !posB) continue;
 
-      const isConnectedToSelected = r.source === selected || r.target === selected;
+      const isConnected = r.source === activeTable || r.target === activeTable;
 
-      // In "selected" mode, only show lines connected to the selected table!
-      if (linesMode === "selected" && !isConnectedToSelected) {
+      if (linesMode === "selected" && activeTable && !isConnected) {
         continue;
       }
 
-      const tSource = activeTables.find((t) => t.name === r.source);
-      const tTarget = activeTables.find((t) => t.name === r.target);
+      const tSource = data.tables.find((t) => t.name === r.source);
+      const tTarget = data.tables.find((t) => t.name === r.target);
       const idxA = tSource ? tSource.columns.findIndex((c) => r.columns.includes(c.name)) : 0;
       const idxB = tTarget ? tTarget.columns.findIndex((c) => r.targetColumns.includes(c.name)) : 0;
 
-      const clampIdxA = Math.min(Math.max(0, idxA), 11);
-      const clampIdxB = Math.min(Math.max(0, idxB), 11);
+      const clampIdxA = Math.min(Math.max(0, idxA), 13);
+      const clampIdxB = Math.min(Math.max(0, idxB), 13);
 
-      const y1 = posA.y + 42 + clampIdxA * 27 + 13.5;
-      const y2 = posB.y + 42 + clampIdxB * 27 + 13.5;
+      const y1 = posA.y + 34 + clampIdxA * 28 + 14;
+      const y2 = posB.y + 34 + clampIdxB * 28 + 14;
 
       let x1, x2, pathD;
 
@@ -118,33 +215,28 @@
         // Self loop
         x1 = posA.x + CARD_WIDTH;
         x2 = posA.x + CARD_WIDTH;
-        pathD = `M ${x1} ${y1} C ${x1 + 60} ${y1 - 35}, ${x2 + 60} ${y2 + 35}, ${x2} ${y2}`;
-      } else if (posA.x + CARD_WIDTH <= posB.x + 40) {
-        // Target is clearly to the right
+        pathD = buildOuterPath(x1, y1, x2, y2, x1 + 40);
+      } else if (posA.x + CARD_WIDTH <= posB.x + 20) {
+        // Target is to the right
         x1 = posA.x + CARD_WIDTH;
         x2 = posB.x;
-        const dx = Math.min(100, Math.max(40, (x2 - x1) * 0.45));
-        pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-      } else if (posB.x + CARD_WIDTH <= posA.x + 40) {
-        // Target is clearly to the left
+        pathD = buildOrthogonalPath(x1, y1, x2, y2);
+      } else if (posB.x + CARD_WIDTH <= posA.x + 20) {
+        // Target is to the left
         x1 = posA.x;
         x2 = posB.x + CARD_WIDTH;
-        const dx = Math.min(100, Math.max(40, (x1 - x2) * 0.45));
-        pathD = `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+        pathD = buildOrthogonalPath(x1, y1, x2, y2);
       } else {
-        // Horizontally overlapping (stacked or close)
-        // Connect right-to-right outer curve
-        x1 = posA.x + CARD_WIDTH;
-        x2 = posB.x + CARD_WIDTH;
-        const dx = 50;
-        pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+        // Horizontally overlapping
+        const outerX = Math.max(posA.x, posB.x) + CARD_WIDTH + 30;
+        pathD = buildOuterPath(posA.x + CARD_WIDTH, y1, posB.x + CARD_WIDTH, y2, outerX);
       }
 
       let lineClass = "fk-line";
-      if (linesMode === "all" && !isConnectedToSelected) {
-        lineClass += " is-subtle";
-      } else if (isConnectedToSelected) {
+      if (isConnected) {
         lineClass += " highlight";
+      } else if (linesMode === "all" && activeTable && !isConnected) {
+        lineClass += " is-faded";
       }
 
       const path = svg("path", {
@@ -152,14 +244,13 @@
         class: lineClass,
         "data-source": r.source,
         "data-target": r.target,
-        "marker-end": "url(#fk-arrow)",
       });
 
       path.append(
         svg(
           "title",
           {},
-          `${r.name}: ${r.source} (${r.columns.join(",")}) → ${r.target} (${r.targetColumns.join(",")})`,
+          `${r.name}: ${r.source}(${r.columns.join(",")}) → ${r.target}(${r.targetColumns.join(",")})`,
         ),
       );
 
@@ -168,84 +259,66 @@
   }
 
   function draw() {
-    const related = new Set([selected]);
-    for (const r of data.relationships) {
-      if (r.source === selected) related.add(r.target);
-      if (r.target === selected) related.add(r.source);
+    if (!data.tables.length) return;
+
+    const scope = $("schema-scope")?.value || "all";
+    let activeTables = data.tables;
+
+    if (scope === "related" && selected) {
+      const relatedNames = new Set([selected]);
+      data.relationships.forEach((r) => {
+        if (r.source === selected) relatedNames.add(r.target);
+        if (r.target === selected) relatedNames.add(r.source);
+      });
+      activeTables = data.tables.filter((t) => relatedNames.has(t.name));
     }
 
-    activeTables = data.tables.filter(
-      (t) => $("schema-scope").value === "all" || related.has(t.name),
-    );
-    activeTables.sort((a, b) =>
-      a.name === selected ? -1 : b.name === selected ? 1 : a.name.localeCompare(b.name),
-    );
-
-    const CARD_WIDTH = 280;
-    const COL_PITCH = 360;
-    const cols = Math.max(1, Math.min(3, activeTables.length));
     const saved = getSavedPositions();
+    const hasSaved = Object.keys(saved).length > 0;
 
-    let autoY = 40;
-    for (let i = 0; i < activeTables.length; i += cols) {
-      const row = activeTables.slice(i, i + cols);
-      const rowHeights = row.map(
-        (t) => 44 + Math.min(t.columns.length, 12) * 27 + (t.columns.length > 12 ? 24 : 0),
-      );
-      const maxHeight = Math.max(...rowHeights);
-
-      for (const [j, t] of row.entries()) {
-        const h = 44 + Math.min(t.columns.length, 12) * 27 + (t.columns.length > 12 ? 24 : 0);
+    if (!hasSaved) {
+      computeHierarchicalLayout(activeTables);
+    } else {
+      for (const t of activeTables) {
+        const colCount = Math.min(t.columns.length, 14);
+        const cardHeight = 34 + colCount * 28 + 8;
         if (saved[t.name]) {
-          positions.set(t.name, { x: saved[t.name].x, y: saved[t.name].y, h });
+          positions.set(t.name, { x: saved[t.name].x, y: saved[t.name].y, h: cardHeight });
         } else {
-          positions.set(t.name, { x: 40 + j * COL_PITCH, y: autoY, h });
+          positions.set(t.name, { x: 50, y: 40, h: cardHeight });
         }
       }
-      autoY += maxHeight + 60;
     }
 
-    // Compute bounds
-    let maxX = 800;
+    // Bounds calculation
+    let maxX = 850;
     let maxY = 600;
     for (const p of positions.values()) {
-      if (p.x + CARD_WIDTH + 80 > maxX) maxX = p.x + CARD_WIDTH + 80;
-      if (p.y + p.h + 80 > maxY) maxY = p.y + p.h + 80;
+      if (p.x + CARD_WIDTH + 100 > maxX) maxX = p.x + CARD_WIDTH + 100;
+      if (p.y + p.h + 100 > maxY) maxY = p.y + p.h + 100;
     }
 
-    const zoom = Number($("schema-zoom").value) || 1;
+    const zoom = Number($("schema-zoom")?.value) || 1;
     const container = $("canvas-zoom-container");
     container.style.width = maxX + "px";
     container.style.height = maxY + "px";
     container.style.transform = `scale(${zoom})`;
 
-    // SVG Layer setup
+    // SVG Layer Setup
     const rootSvg = $("schema-diagram");
     rootSvg.replaceChildren();
     rootSvg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
     rootSvg.setAttribute("width", String(maxX));
     rootSvg.setAttribute("height", String(maxY));
 
-    const defs = svg("defs");
-    const marker = svg("marker", {
-      id: "fk-arrow",
-      viewBox: "0 0 10 10",
-      refX: 8,
-      refY: 5,
-      markerWidth: 7,
-      markerHeight: 7,
-      orient: "auto-start-reverse",
-    });
-    marker.append(svg("path", { d: "M 0 1.5 L 8 5 L 0 8.5 z", fill: "#059669" }));
-    defs.append(marker);
-    rootSvg.append(defs);
-
-    // Nodes Layer setup
+    // Nodes Layer
     const nodesLayer = $("schema-nodes-layer");
     nodesLayer.replaceChildren();
 
     for (const t of activeTables) {
       const pos = positions.get(t.name);
+      if (!pos) continue;
+
       const isSelected = t.name === selected;
       const card = node("div");
       card.className = `schema-card ${isSelected ? "selected" : ""}`;
@@ -254,39 +327,28 @@
       card.style.width = CARD_WIDTH + "px";
       card.setAttribute("data-table", t.name);
 
-      // Card Header (Drag handle)
+      // Card Header: Solid emerald green banner matching Supabase screenshot
       const header = node("div");
       header.className = "schema-card-header";
-      header.title = "Drag to reposition table";
 
-      const headerLeft = node("div");
-      headerLeft.className = "card-header-left";
-      headerLeft.append(node("span", "▦"), node("span", t.name));
-      headerLeft.querySelector("span:first-child").className = "card-icon";
-      headerLeft.querySelector("span:last-child").className = "card-name";
-
-      const headerRight = node("div");
-      headerRight.className = "card-header-right";
-
-      const badge = node("span", String(t.columns.length) + " cols");
-      badge.className = "card-col-count";
+      const nameSpan = node("span", t.name);
+      nameSpan.className = "card-name";
+      header.append(nameSpan);
 
       const queryBtn = node("button", "⚡");
       queryBtn.type = "button";
       queryBtn.className = "card-query-btn";
-      queryBtn.title = `Query "${t.name}" in SQL Console`;
+      queryBtn.title = `Query "${t.name}" in Side SQL Console`;
       queryBtn.onclick = (e) => {
         e.stopPropagation();
         if (window.openSideSql) {
           window.openSideSql(`SELECT * FROM "${t.name}" LIMIT 25;`);
         }
       };
-
-      headerRight.append(badge, queryBtn);
-      header.append(headerLeft, headerRight);
+      header.append(queryBtn);
       card.append(header);
 
-      // Drag and Drop Logic
+      // Drag and Drop
       header.addEventListener("mousedown", (e) => {
         if (e.target.closest("button")) return;
         e.preventDefault();
@@ -294,7 +356,8 @@
 
         const startX = e.clientX;
         const startY = e.clientY;
-        const origPos = { x: pos.x, y: pos.y };
+        const origX = pos.x;
+        const origY = pos.y;
         const currentZoom = Number($("schema-zoom")?.value) || 1;
 
         card.classList.add("dragging");
@@ -303,13 +366,12 @@
         const onMouseMove = (ev) => {
           const dx = (ev.clientX - startX) / currentZoom;
           const dy = (ev.clientY - startY) / currentZoom;
-          pos.x = Math.max(10, origPos.x + dx);
-          pos.y = Math.max(10, origPos.y + dy);
+          pos.x = Math.max(10, origX + dx);
+          pos.y = Math.max(10, origY + dy);
 
           card.style.left = pos.x + "px";
           card.style.top = pos.y + "px";
 
-          // Real-time cable redraw
           drawRelationshipLines();
         };
 
@@ -333,30 +395,38 @@
         const isFk = data.relationships.some(
           (r) => r.source === t.name && r.columns.includes(c.name),
         );
+
         const row = node("div");
-        row.className = `card-col-row ${c.pk ? "is-pk" : ""} ${isFk ? "is-fk" : ""}`;
-        row.title = `${c.name}: ${c.type}${c.nullable ? " (nullable)" : " (NOT NULL)"}`;
+        row.className = `card-col-row ${c.pk ? "is-pk" : ""}`;
 
         const nameGroup = node("div");
         nameGroup.className = "col-name-group";
 
+        const iconsGroup = node("span");
+        iconsGroup.className = "col-icons";
+
         if (c.pk) {
-          const pkBadge = node("span", "PK");
-          pkBadge.className = "pk-badge";
-          nameGroup.append(pkBadge);
-        } else if (isFk) {
-          const fkBadge = node("span", "FK");
-          fkBadge.className = "fk-badge";
-          nameGroup.append(fkBadge);
+          // Key icon + non-null diamond + identity hash
+          const keyIcon = node("span", "⚿");
+          keyIcon.className = "icon-key";
+          const notNullIcon = node("span", "◆");
+          notNullIcon.className = "icon-notnull";
+          const idIcon = node("span", "#");
+          idIcon.className = "icon-id";
+          iconsGroup.append(keyIcon, notNullIcon, idIcon);
+        } else if (!c.nullable) {
+          const notNullIcon = node("span", "◆");
+          notNullIcon.className = "icon-notnull";
+          iconsGroup.append(notNullIcon);
         } else {
-          const dot = node("span", "•");
-          dot.className = "dot-badge";
-          nameGroup.append(dot);
+          const nullIcon = node("span", "◇");
+          nullIcon.className = "icon-null";
+          iconsGroup.append(nullIcon);
         }
 
-        const nameSpan = node("span", c.name);
-        nameSpan.className = "col-name";
-        nameGroup.append(nameSpan);
+        const colName = node("span", c.name);
+        colName.className = "col-name";
+        nameGroup.append(iconsGroup, colName);
 
         const typeSpan = node("span", c.type);
         typeSpan.className = "col-type-pill";
@@ -377,22 +447,42 @@
         location.href = "/tables/" + encodeURIComponent(t.name);
       };
 
-      // Hover cable highlighting
+      // Hover cable highlighting & isolated focus
       card.onmouseenter = () => {
-        rootSvg.querySelectorAll(`path[data-source="${t.name}"], path[data-target="${t.name}"]`).forEach((p) => {
-          p.classList.add("highlight");
-        });
+        hoveredTable = t.name;
+        highlightConnections(t.name);
       };
       card.onmouseleave = () => {
-        rootSvg.querySelectorAll(".fk-line.highlight").forEach((p) => {
-          if (!p.getAttribute("class")?.includes("highlight-persistent")) {
-            p.classList.remove("highlight");
-          }
-        });
+        hoveredTable = "";
+        highlightConnections(selected);
       };
 
       nodesLayer.append(card);
     }
+
+    drawRelationshipLines();
+  }
+
+  function highlightConnections(tableName) {
+    document.querySelectorAll(".schema-card").forEach((c) => {
+      c.classList.remove("connected-highlight");
+    });
+
+    if (!tableName) {
+      drawRelationshipLines();
+      return;
+    }
+
+    const connected = new Set();
+    data.relationships.forEach((r) => {
+      if (r.source === tableName) connected.add(r.target);
+      if (r.target === tableName) connected.add(r.source);
+    });
+
+    connected.forEach((name) => {
+      const c = document.querySelector(`.schema-card[data-table="${name}"]`);
+      if (c) c.classList.add("connected-highlight");
+    });
 
     drawRelationshipLines();
   }
@@ -431,12 +521,11 @@
     const current = ++version;
     sidebar();
 
-    // Update selected styles on cards
     document.querySelectorAll(".schema-card").forEach((c) => {
       c.classList.toggle("selected", c.getAttribute("data-table") === name);
     });
 
-    drawRelationshipLines();
+    highlightConnections(name);
     relationships();
 
     history.replaceState(null, "", "/schema?table=" + encodeURIComponent(name));
@@ -474,6 +563,34 @@
     } catch (e) {
       if (current === version) $("definition-status").textContent = e.message;
     }
+  }
+
+  // Setup background click-and-drag panning
+  function setupCanvasPanning() {
+    const canvas = $("schema-canvas");
+    let isPanning = false;
+    let startX = 0, startY = 0, scrollLeft = 0, scrollTop = 0;
+
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".schema-card") || e.target.closest("button")) return;
+      isPanning = true;
+      startX = e.pageX - canvas.offsetLeft;
+      startY = e.pageY - canvas.offsetTop;
+      scrollLeft = canvas.scrollLeft;
+      scrollTop = canvas.scrollTop;
+    });
+
+    canvas.addEventListener("mouseleave", () => { isPanning = false; });
+    canvas.addEventListener("mouseup", () => { isPanning = false; });
+
+    canvas.addEventListener("mousemove", (e) => {
+      if (!isPanning) return;
+      e.preventDefault();
+      const x = e.pageX - canvas.offsetLeft;
+      const y = e.pageY - canvas.offsetTop;
+      canvas.scrollLeft = scrollLeft - (x - startX);
+      canvas.scrollTop = scrollTop - (y - startY);
+    });
   }
 
   async function refresh() {
@@ -524,5 +641,7 @@
     };
   }
   $("schema-refresh").onclick = refresh;
+
+  setupCanvasPanning();
   refresh();
 })();

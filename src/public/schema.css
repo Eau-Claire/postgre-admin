@@ -2,7 +2,7 @@
 
 .schema-toolbar {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
   flex-wrap: wrap;
   margin-bottom: 12px;
@@ -23,14 +23,14 @@
 .legend-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 8px;
+  font-size: 11.5px;
   margin-left: auto;
   color: var(--muted);
 }
 
 .badge-pk-legend {
-  color: #b45309;
+  color: #059669;
   font-weight: 700;
 }
 
@@ -48,29 +48,39 @@
   padding-bottom: 20px;
 }
 
+/* ==========================================================================
+   Supabase Dark Canvas & Orthogonal Grid Viewport
+   ========================================================================== */
 .diagram-panel {
-  border: 1px solid var(--line);
+  border: 1px solid #23252a;
   border-radius: 10px;
-  background: #f8faf9;
+  background: #16171a;
   min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.03);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
 #schema-canvas {
   overflow: auto;
   width: 100%;
   height: 100%;
-  min-height: 480px;
+  min-height: 520px;
   position: relative;
-  /* Supabase style dot grid pattern */
-  background-color: #f7faf8;
-  background-image: radial-gradient(#cad8cf 1.3px, transparent 1.3px);
+  /* Dark Supabase Grid Matrix */
+  background-color: #16171a;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 24px 24px;
   cursor: grab;
+  outline: none;
+}
+
+#schema-canvas:active {
+  cursor: grabbing;
 }
 
 #canvas-zoom-container {
@@ -78,7 +88,7 @@
   min-width: 100%;
   min-height: 100%;
   transform-origin: 0 0;
-  transition: transform 0.15s ease-out;
+  transition: transform 0.12s ease-out;
 }
 
 #schema-diagram {
@@ -101,131 +111,123 @@
   z-index: 2;
 }
 
-/* Supabase-style Table Cards */
+/* ==========================================================================
+   Supabase Studio Table Cards (1:1 with reference image)
+   ========================================================================== */
 .schema-card {
   position: absolute;
-  width: 280px;
-  background: #ffffff;
-  border: 1px solid #d2ded7;
-  border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(22, 59, 36, 0.08);
+  width: 250px;
+  background: #1e1f23;
+  border: 1px solid #2d2f35;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
   pointer-events: auto;
-  cursor: pointer;
   user-select: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
   overflow: hidden;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 .schema-card:hover {
-  border-color: #087f5b;
-  box-shadow: 0 6px 22px rgba(8, 127, 91, 0.16);
-  transform: translateY(-2px);
+  border-color: #24b47e;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
 }
 
 .schema-card.selected {
-  border-color: #087f5b;
-  box-shadow: 0 0 0 2px #087f5b, 0 8px 28px rgba(8, 127, 91, 0.24);
-  transform: translateY(-2px);
+  border-color: #24b47e;
+  box-shadow: 0 0 0 2px #24b47e, 0 12px 32px rgba(36, 180, 126, 0.25);
+}
+
+.schema-card.connected-highlight {
+  border-color: #226b48;
+  box-shadow: 0 0 0 1px #226b48, 0 8px 24px rgba(34, 107, 72, 0.3);
 }
 
 .schema-card.dragging {
   cursor: grabbing !important;
-  z-index: 90 !important;
-  box-shadow: 0 16px 40px rgba(8, 127, 91, 0.3) !important;
+  z-index: 99 !important;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.85) !important;
+  border-color: #24b47e !important;
   opacity: 0.96;
   transition: none !important;
 }
 
+/* Vibrant Emerald Green Header (Matches Supabase screenshot) */
 .schema-card-header {
   cursor: grab;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: #f0f7f3;
-  border-bottom: 1px solid #e0ebe4;
+  justify-content: center;
+  position: relative;
+  padding: 7px 12px;
+  background: #24b47e; /* Solid Supabase emerald banner */
+  border-top-left-radius: 7px;
+  border-top-right-radius: 7px;
 }
 
-.card-header-left {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  overflow: hidden;
-}
-
-.card-icon {
-  font-size: 13px;
-  color: var(--green);
-}
-
-.card-name {
+.schema-card-header .card-name {
   font-weight: 700;
   font-size: 13px;
-  color: #1a392c;
+  color: #062e1c; /* Crisp dark bold title */
+  text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.card-header-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.card-col-count {
-  font-size: 10px;
-  background: #e2ede6;
-  color: #496658;
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-weight: 600;
+  letter-spacing: -0.2px;
 }
 
 .card-query-btn {
-  background: transparent;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.15);
   border: 0;
-  color: #087f5b;
-  font-size: 12px;
+  color: #062e1c;
+  font-size: 11px;
   padding: 2px 5px;
   border-radius: 4px;
   cursor: pointer;
   font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.schema-card:hover .card-query-btn {
+  opacity: 1;
 }
 
 .card-query-btn:hover {
-  background: #d8ece0;
+  background: rgba(0, 0, 0, 0.3);
+  color: #ffffff;
 }
 
+/* Column Rows */
 .schema-card-columns {
-  max-height: 320px;
+  max-height: 380px;
   overflow-y: auto;
+  background: #1e1f23;
 }
 
 .card-col-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 10px;
-  height: 27px;
+  padding: 0 10px;
+  height: 28px;
   box-sizing: border-box;
-  border-bottom: 1px solid #f2f6f4;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   font-size: 12px;
-  color: #273b32;
+  color: #d1d5db;
   transition: background 0.1s;
 }
 
 .card-col-row:hover {
-  background: #f7faf8;
+  background: #27282d;
 }
 
 .card-col-row.is-pk {
-  background: #fffdf5;
-}
-
-.card-col-row.is-pk:hover {
-  background: #fff9e6;
+  background: rgba(36, 180, 126, 0.08);
 }
 
 .col-name-group {
@@ -233,10 +235,40 @@
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  max-width: 170px;
+  max-width: 165px;
+}
+
+.col-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.icon-key {
+  color: #e5e7eb;
+  font-size: 12px;
+}
+
+.icon-notnull {
+  color: #9ca3af;
+  font-size: 9px;
+}
+
+.icon-null {
+  color: #4b5563;
+  font-size: 11px;
+}
+
+.icon-id {
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .col-name {
+  color: #e5e7eb;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -244,73 +276,51 @@
 
 .card-col-row.is-pk .col-name {
   font-weight: 600;
-  color: #172a22;
-}
-
-.pk-badge {
-  font-size: 9px;
-  font-weight: 700;
-  background: #fef3c7;
-  color: #b45309;
-  padding: 1px 4px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-.fk-badge {
-  font-size: 9px;
-  font-weight: 700;
-  background: #e0f2fe;
-  color: #0369a1;
-  padding: 1px 4px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-.dot-badge {
-  font-size: 10px;
-  color: #a3b5ab;
-  width: 14px;
-  text-align: center;
-  flex-shrink: 0;
+  color: #ffffff;
 }
 
 .col-type-pill {
-  font-family: ui-monospace, monospace;
-  font-size: 10px;
-  background: #edf4f0;
-  color: #526c5f;
-  padding: 1px 5px;
-  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #7e8691;
   flex-shrink: 0;
 }
 
-/* Relationship cables */
+/* ==========================================================================
+   Orthogonal Stepped Dashed Cables (1:1 with reference image)
+   ========================================================================== */
 .fk-line {
   fill: none;
-  stroke: #10b981;
-  stroke-width: 1.8;
-  opacity: 0.65;
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1.4;
+  stroke-dasharray: 6 4;
   pointer-events: stroke;
   cursor: pointer;
-  transition: stroke 0.15s, stroke-width 0.15s, opacity 0.15s;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease;
 }
 
 .fk-line.is-subtle {
-  opacity: 0.2;
-  stroke: #88c9b2;
-  stroke-width: 1.3;
+  opacity: 0.18;
+  stroke: rgba(255, 255, 255, 0.2);
 }
 
 .fk-line:hover,
 .fk-line.highlight {
-  stroke: #059669;
-  stroke-width: 2.8;
+  stroke: #24b47e;
+  stroke-width: 2.2;
+  stroke-dasharray: none;
   opacity: 1;
-  filter: drop-shadow(0 0 4px rgba(5, 150, 105, 0.45));
+  filter: drop-shadow(0 0 5px rgba(36, 180, 126, 0.7));
 }
 
-/* Definition panel */
+.fk-line.is-faded {
+  opacity: 0.1 !important;
+  stroke: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* ==========================================================================
+   Definition Panel (Original side panel preserved)
+   ========================================================================== */
 .definition-panel {
   overflow: auto;
   min-width: 0;
@@ -395,6 +405,6 @@
     flex-direction: column;
   }
   .diagram-panel {
-    height: 480px;
+    height: 520px;
   }
 }
