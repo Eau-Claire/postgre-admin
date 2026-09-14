@@ -695,7 +695,7 @@ nav button.active .table-badge {
 }
 
 /* Bulk actions bar */
-.bulk-bar {
+.bulk-bar[hidden] {\n  display: none !important;\n}\n\n.bulk-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;

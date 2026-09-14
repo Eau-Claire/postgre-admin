@@ -233,11 +233,15 @@ const keyString = (k) => JSON.stringify(k);
 
 function updateBulkBar() {
   const count = s.selectedKeys.size;
+  const bar = $("bulk-bar");
+  if (!bar) return;
   if (count > 0) {
-    $("bulk-bar").hidden = false;
+    bar.hidden = false;
+    bar.style.display = "flex";
     $("bulk-count").textContent = count + (count === 1 ? " row selected" : " rows selected");
   } else {
-    $("bulk-bar").hidden = true;
+    bar.hidden = true;
+    bar.style.display = "none";
   }
 }
 
@@ -261,7 +265,10 @@ function render() {
     const allSelectedOnPage =
       s.rows.length > 0 &&
       s.rows.every((r) => s.selectedKeys.has(keyString(key(r))));
+    const someSelectedOnPage =
+      s.rows.some((r) => s.selectedKeys.has(keyString(key(r))));
     masterCheck.checked = allSelectedOnPage;
+    masterCheck.indeterminate = !allSelectedOnPage && someSelectedOnPage;
 
     masterCheck.onchange = () => {
       for (const row of s.rows) {
@@ -330,6 +337,15 @@ function render() {
           s.selectedKeys.delete(rowKeyStr);
         }
         updateBulkBar();
+        if (masterCheck) {
+          const allSelected =
+            s.rows.length > 0 &&
+            s.rows.every((r) => s.selectedKeys.has(keyString(key(r))));
+          const someSelected =
+            s.rows.some((r) => s.selectedKeys.has(keyString(key(r))));
+          masterCheck.checked = allSelected;
+          masterCheck.indeterminate = !allSelected && someSelected;
+        }
       };
       tdCheck.append(rowCheck);
       tr.append(tdCheck);
