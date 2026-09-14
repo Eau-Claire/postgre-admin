@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Database Workspace · UAV PMS</title>
     <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/side-sql.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
@@ -53,6 +54,7 @@
                   <button type="button" id="export-table-json">Export as JSON</button>
                 </div>
               </details>
+              <button id="btn-toggle-side-sql" class="btn-secondary" type="button">⚡ SQL Side</button>
               <button id="add" class="primary" disabled>＋ Add row</button>
             </div>
           </header>
@@ -245,5 +247,63 @@
         <button id="done-json" type="button">Done</button>
       </div>
     </dialog>
+  
+    <!-- FLOATING RIGHT BUTTON TO OPEN SIDE SQL -->
+    <button id="btn-float-side-sql" class="side-sql-float-btn" type="button" title="Open SQL Console">
+      ⚡ SQL
+    </button>
+
+    <!-- SIDE SQL DRAWER -->
+    <aside id="side-sql-drawer" class="side-sql-drawer" hidden>
+      <div class="side-sql-header">
+        <div class="side-sql-title">
+          <span>⚡ SQL Console</span>
+          <span id="side-sql-duration" class="metric-badge" hidden></span>
+        </div>
+        <div class="side-sql-header-actions">
+          <button id="side-sql-run" class="primary btn-xs" type="button">▶ Run (Ctrl+Enter)</button>
+          <button id="side-sql-clear" class="btn-xs btn-secondary" type="button">✕ Clear</button>
+          <button id="side-sql-close" class="btn-xs btn-ghost" type="button" aria-label="Close">✕</button>
+        </div>
+      </div>
+
+      <div class="side-sql-body">
+        <div class="side-sql-toolbar">
+          <select id="side-sql-templates" aria-label="Query Templates">
+            <option value="">⚡ Templates…</option>
+            <option value="select_all">SELECT * FROM ... LIMIT 25</option>
+            <option value="count">SELECT COUNT(*) FROM ...</option>
+            <option value="insert">INSERT INTO ...</option>
+            <option value="update">UPDATE ...</option>
+            <option value="explain">EXPLAIN ANALYZE ...</option>
+          </select>
+          <select id="side-sql-history" aria-label="Query History">
+            <option value="">🕒 History…</option>
+          </select>
+        </div>
+
+        <textarea
+          id="side-sql-input"
+          rows="6"
+          placeholder="-- Enter SQL query... (Ctrl+Enter to run)&#10;SELECT * FROM &quot;Users&quot; LIMIT 10;"
+          spellcheck="false"
+        ></textarea>
+
+        <div id="side-sql-error" class="error" role="alert" hidden></div>
+        <div id="side-sql-success" class="notice" hidden></div>
+
+        <div class="side-sql-results-wrap">
+          <div class="side-sql-results-bar">
+            <span id="side-sql-row-count" class="muted">0 rows</span>
+            <div class="side-sql-export-btns" id="side-sql-export-btns" hidden>
+              <button id="side-sql-export-csv" class="btn-xs" type="button">📥 CSV</button>
+              <button id="side-sql-export-json" class="btn-xs" type="button">📥 JSON</button>
+            </div>
+          </div>
+          <div id="side-sql-grid" class="grid-wrap" aria-busy="false"></div>
+        </div>
+      </div>
+    </aside>
+  
   </body>
 </html>

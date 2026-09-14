@@ -3,9 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>SQL Schema · UAV PMS</title>
+    <title>SQL Schema Visualizer · UAV PMS</title>
     <link rel="stylesheet" href="/assets/style.css" />
     <link rel="stylesheet" href="/assets/schema.css" />
+    <script src="/assets/side-sql.js" defer></script>
     <script src="/assets/schema.js" defer></script>
   </head>
   <body>
@@ -14,74 +15,92 @@
         <div class="brand">
           UAV <span>PMS</span><small>DATABASE WORKSPACE</small>
         </div>
-        <a class="schema-link" href="/tables">▦ Table Editor</a
-        ><a class="schema-link active" href="/schema" aria-current="page"
-          >◇ SQL Schema</a
-        >
-        <div class="sidebar-label">PUBLIC TABLES</div>
+        <div class="nav-links">
+          <a class="schema-link" href="/tables">▦ Table Editor</a>
+          <a class="schema-link" href="/sql">⚡ SQL Editor</a>
+          <a class="schema-link active" href="/schema" aria-current="page">◇ SQL Schema</a>
+        </div>
+        <div class="sidebar-label">PUBLIC TABLES <span id="schema-table-count" class="badge"></span></div>
         <input
           id="schema-search"
           placeholder="Find a table…"
           aria-label="Find a table"
         />
         <nav id="schema-tables" aria-label="Schema tables"></nav>
-        <div class="sidebar-bottom">Metadata only · Read-only</div>
+        <div class="sidebar-bottom">
+          <div class="access-info">
+            <span class="status-dot"></span>
+            <span>Schema Visualizer</span>
+          </div>
+        </div>
       </aside>
+
       <main>
         <header>
           <div>
-            <div class="eyebrow">DATABASE / STRUCTURE</div>
-            <h1>SQL Schema</h1>
+            <div class="eyebrow">DATABASE / VISUALIZER</div>
+            <h1>SQL Schema Visualizer</h1>
             <p id="schema-summary" class="muted">
-              Explore tables and foreign-key relationships.
+              Explore tables and foreign-key relationships in real-time.
             </p>
           </div>
-          <button id="schema-refresh">↻ Refresh</button>
+          <div class="header-actions">
+            <button id="schema-refresh" type="button">↻ Refresh</button>
+            <button id="btn-toggle-side-sql" class="primary" type="button">⚡ SQL Console</button>
+          </div>
         </header>
+
         <div class="schema-toolbar">
-          <label
-            >View
+          <label>
+            View
             <select id="schema-scope">
-              <option value="related">Selected table + neighbors</option>
               <option value="all">All tables</option>
-            </select></label
-          ><label
-            >Zoom
+              <option value="related" selected>Selected table + neighbors</option>
+            </select>
+          </label>
+          <label>
+            Zoom
             <select id="schema-zoom">
-              <option value="0.65">65%</option>
+              <option value="0.75">75%</option>
+              <option value="0.9">90%</option>
               <option value="1" selected>100%</option>
-              <option value="1.25">125%</option>
-            </select></label
-          ><span class="muted"
-            >PK = primary key · FK arrows point to the referenced table</span
-          >
+              <option value="1.15">115%</option>
+              <option value="1.3">130%</option>
+            </select>
+          </label>
+          <span class="legend-pill">
+            <span class="badge-pk-legend">🔑 PK</span> Primary Key &nbsp;·&nbsp;
+            <span class="badge-fk-legend">🔗 FK</span> Foreign Key
+          </span>
         </div>
+
         <p id="schema-status" role="status" aria-live="polite"></p>
+
         <div class="schema-layout">
+          <!-- DIAGRAM CANVAS (Supabase style) -->
           <section class="diagram-panel" aria-label="Relationship diagram">
-            <div
-              id="schema-canvas"
-              tabindex="0"
-              aria-label="Scrollable schema diagram"
-            >
-              <svg
-                id="schema-diagram"
-                xmlns="http://www.w3.org/2000/svg"
-                role="img"
-                aria-label="Public table relationships"
-              ></svg>
+            <div id="schema-canvas" tabindex="0" aria-label="Scrollable schema diagram">
+              <div id="canvas-zoom-container">
+                <svg id="schema-diagram" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Public table relationships"></svg>
+                <div id="schema-nodes-layer"></div>
+              </div>
             </div>
           </section>
+
+          <!-- DEFINITION PANEL -->
           <section class="definition-panel">
             <div class="definition-heading">
               <h2 id="definition-title">Select a table</h2>
-              <a id="browse-table" href="/tables">Browse rows →</a>
+              <div class="def-actions">
+                <button id="btn-query-table" class="btn-xs primary" type="button">⚡ Query table</button>
+                <a id="browse-table" href="/tables" class="btn-xs btn-secondary">Browse rows →</a>
+              </div>
             </div>
             <p class="muted">
-              Catalog reference, not a full migration. Nothing here executes
-              SQL.
+              PostgreSQL catalog reference and relational integrity graph.
             </p>
             <div id="definition-status" role="status"></div>
+            
             <details open>
               <summary>SQL definition</summary>
               <pre id="schema-sql"></pre>
@@ -98,5 +117,62 @@
         </div>
       </main>
     </div>
+
+    <!-- FLOATING RIGHT BUTTON TO OPEN SIDE SQL -->
+    <button id="btn-float-side-sql" class="side-sql-float-btn" type="button" title="Open SQL Console">
+      ⚡ SQL
+    </button>
+
+    <!-- SIDE SQL DRAWER -->
+    <aside id="side-sql-drawer" class="side-sql-drawer" hidden>
+      <div class="side-sql-header">
+        <div class="side-sql-title">
+          <span>⚡ SQL Console</span>
+          <span id="side-sql-duration" class="metric-badge" hidden></span>
+        </div>
+        <div class="side-sql-header-actions">
+          <button id="side-sql-run" class="primary btn-xs" type="button">▶ Run (Ctrl+Enter)</button>
+          <button id="side-sql-clear" class="btn-xs btn-secondary" type="button">✕ Clear</button>
+          <button id="side-sql-close" class="btn-xs btn-ghost" type="button" aria-label="Close">✕</button>
+        </div>
+      </div>
+
+      <div class="side-sql-body">
+        <div class="side-sql-toolbar">
+          <select id="side-sql-templates" aria-label="Query Templates">
+            <option value="">⚡ Templates…</option>
+            <option value="select_all">SELECT * FROM ... LIMIT 25</option>
+            <option value="count">SELECT COUNT(*) FROM ...</option>
+            <option value="insert">INSERT INTO ...</option>
+            <option value="update">UPDATE ...</option>
+            <option value="explain">EXPLAIN ANALYZE ...</option>
+          </select>
+          <select id="side-sql-history" aria-label="Query History">
+            <option value="">🕒 History…</option>
+          </select>
+        </div>
+
+        <textarea
+          id="side-sql-input"
+          rows="6"
+          placeholder="-- Enter SQL query... (Ctrl+Enter to run)&#10;SELECT * FROM &quot;Users&quot; LIMIT 10;"
+          spellcheck="false"
+        ></textarea>
+
+        <div id="side-sql-error" class="error" role="alert" hidden></div>
+        <div id="side-sql-success" class="notice" hidden></div>
+
+        <div class="side-sql-results-wrap">
+          <div class="side-sql-results-bar">
+            <span id="side-sql-row-count" class="muted">0 rows</span>
+            <div class="side-sql-export-btns" id="side-sql-export-btns" hidden>
+              <button id="side-sql-export-csv" class="btn-xs" type="button">📥 CSV</button>
+              <button id="side-sql-export-json" class="btn-xs" type="button">📥 JSON</button>
+            </div>
+          </div>
+          <div id="side-sql-grid" class="grid-wrap" aria-busy="false"></div>
+        </div>
+      </div>
+    </aside>
   </body>
 </html>
