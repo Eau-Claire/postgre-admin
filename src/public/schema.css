@@ -112,7 +112,7 @@
   pointer-events: auto;
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
   overflow: hidden;
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
@@ -129,7 +129,16 @@
   transform: translateY(-2px);
 }
 
+.schema-card.dragging {
+  cursor: grabbing !important;
+  z-index: 90 !important;
+  box-shadow: 0 16px 40px rgba(8, 127, 91, 0.3) !important;
+  opacity: 0.96;
+  transition: none !important;
+}
+
 .schema-card-header {
+  cursor: grab;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -285,6 +294,12 @@
   pointer-events: stroke;
   cursor: pointer;
   transition: stroke 0.15s, stroke-width 0.15s, opacity 0.15s;
+}
+
+.fk-line.is-subtle {
+  opacity: 0.2;
+  stroke: #88c9b2;
+  stroke-width: 1.3;
 }
 
 .fk-line:hover,

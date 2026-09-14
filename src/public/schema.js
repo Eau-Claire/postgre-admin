@@ -14,10 +14,34 @@
     return e;
   };
 
+  const POSITIONS_KEY = "uavpms_schema_positions";
   let data = { tables: [], relationships: [] },
     selected = "",
     version = 0,
-    refreshVersion = 0;
+    refreshVersion = 0,
+    positions = new Map(), // name -> { x, y, h }
+    activeTables = [];
+
+  function getSavedPositions() {
+    try {
+      return JSON.parse(localStorage.getItem(POSITIONS_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  function savePositions() {
+    const obj = {};
+    for (const [k, v] of positions.entries()) {
+      obj[k] = { x: Math.round(v.x), y: Math.round(v.y) };
+    }
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(obj));
+  }
+
+  function clearSavedPositions() {
+    localStorage.removeItem(POSITIONS_KEY);
+    positions.clear();
+  }
 
   async function get(url) {
     const r = await fetch(url);
@@ -50,57 +74,157 @@
     }
   }
 
+  function drawRelationshipLines() {
+    const rootSvg = $("schema-diagram");
+    if (!rootSvg) return;
+
+    const linesMode = $("schema-lines-mode")?.value || "selected";
+
+    // Keep defs
+    const defs = rootSvg.querySelector("defs");
+    rootSvg.replaceChildren();
+    if (defs) rootSvg.append(defs);
+
+    if (linesMode === "none") return;
+
+    const CARD_WIDTH = 280;
+
+    for (const r of data.relationships) {
+      const posA = positions.get(r.source);
+      const posB = positions.get(r.target);
+      if (!posA || !posB) continue;
+
+      const isConnectedToSelected = r.source === selected || r.target === selected;
+
+      // In "selected" mode, only show lines connected to the selected table!
+      if (linesMode === "selected" && !isConnectedToSelected) {
+        continue;
+      }
+
+      const tSource = activeTables.find((t) => t.name === r.source);
+      const tTarget = activeTables.find((t) => t.name === r.target);
+      const idxA = tSource ? tSource.columns.findIndex((c) => r.columns.includes(c.name)) : 0;
+      const idxB = tTarget ? tTarget.columns.findIndex((c) => r.targetColumns.includes(c.name)) : 0;
+
+      const clampIdxA = Math.min(Math.max(0, idxA), 11);
+      const clampIdxB = Math.min(Math.max(0, idxB), 11);
+
+      const y1 = posA.y + 42 + clampIdxA * 27 + 13.5;
+      const y2 = posB.y + 42 + clampIdxB * 27 + 13.5;
+
+      let x1, x2, pathD;
+
+      if (r.source === r.target) {
+        // Self loop
+        x1 = posA.x + CARD_WIDTH;
+        x2 = posA.x + CARD_WIDTH;
+        pathD = `M ${x1} ${y1} C ${x1 + 60} ${y1 - 35}, ${x2 + 60} ${y2 + 35}, ${x2} ${y2}`;
+      } else if (posA.x + CARD_WIDTH <= posB.x + 40) {
+        // Target is clearly to the right
+        x1 = posA.x + CARD_WIDTH;
+        x2 = posB.x;
+        const dx = Math.min(100, Math.max(40, (x2 - x1) * 0.45));
+        pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+      } else if (posB.x + CARD_WIDTH <= posA.x + 40) {
+        // Target is clearly to the left
+        x1 = posA.x;
+        x2 = posB.x + CARD_WIDTH;
+        const dx = Math.min(100, Math.max(40, (x1 - x2) * 0.45));
+        pathD = `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+      } else {
+        // Horizontally overlapping (stacked or close)
+        // Connect right-to-right outer curve
+        x1 = posA.x + CARD_WIDTH;
+        x2 = posB.x + CARD_WIDTH;
+        const dx = 50;
+        pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
+      }
+
+      let lineClass = "fk-line";
+      if (linesMode === "all" && !isConnectedToSelected) {
+        lineClass += " is-subtle";
+      } else if (isConnectedToSelected) {
+        lineClass += " highlight";
+      }
+
+      const path = svg("path", {
+        d: pathD,
+        class: lineClass,
+        "data-source": r.source,
+        "data-target": r.target,
+        "marker-end": "url(#fk-arrow)",
+      });
+
+      path.append(
+        svg(
+          "title",
+          {},
+          `${r.name}: ${r.source} (${r.columns.join(",")}) → ${r.target} (${r.targetColumns.join(",")})`,
+        ),
+      );
+
+      rootSvg.append(path);
+    }
+  }
+
   function draw() {
     const related = new Set([selected]);
     for (const r of data.relationships) {
       if (r.source === selected) related.add(r.target);
       if (r.target === selected) related.add(r.source);
     }
-    const tables = data.tables.filter(
+
+    activeTables = data.tables.filter(
       (t) => $("schema-scope").value === "all" || related.has(t.name),
     );
-    tables.sort((a, b) =>
+    activeTables.sort((a, b) =>
       a.name === selected ? -1 : b.name === selected ? 1 : a.name.localeCompare(b.name),
     );
 
-    const positions = new Map();
     const CARD_WIDTH = 280;
-    const COL_PITCH = 370;
-    const cols = Math.max(1, Math.min(3, tables.length));
+    const COL_PITCH = 360;
+    const cols = Math.max(1, Math.min(3, activeTables.length));
+    const saved = getSavedPositions();
 
-    let y = 40;
-    for (let i = 0; i < tables.length; i += cols) {
-      const row = tables.slice(i, i + cols);
+    let autoY = 40;
+    for (let i = 0; i < activeTables.length; i += cols) {
+      const row = activeTables.slice(i, i + cols);
       const rowHeights = row.map(
         (t) => 44 + Math.min(t.columns.length, 12) * 27 + (t.columns.length > 12 ? 24 : 0),
       );
       const maxHeight = Math.max(...rowHeights);
 
       for (const [j, t] of row.entries()) {
-        positions.set(t.name, {
-          x: 40 + j * COL_PITCH,
-          y,
-          h: 44 + Math.min(t.columns.length, 12) * 27 + (t.columns.length > 12 ? 24 : 0),
-        });
+        const h = 44 + Math.min(t.columns.length, 12) * 27 + (t.columns.length > 12 ? 24 : 0);
+        if (saved[t.name]) {
+          positions.set(t.name, { x: saved[t.name].x, y: saved[t.name].y, h });
+        } else {
+          positions.set(t.name, { x: 40 + j * COL_PITCH, y: autoY, h });
+        }
       }
-      y += maxHeight + 80;
+      autoY += maxHeight + 60;
     }
 
-    const totalWidth = Math.max(750, cols * COL_PITCH + 60);
-    const totalHeight = Math.max(500, y + 40);
-    const zoom = Number($("schema-zoom").value) || 1;
+    // Compute bounds
+    let maxX = 800;
+    let maxY = 600;
+    for (const p of positions.values()) {
+      if (p.x + CARD_WIDTH + 80 > maxX) maxX = p.x + CARD_WIDTH + 80;
+      if (p.y + p.h + 80 > maxY) maxY = p.y + p.h + 80;
+    }
 
+    const zoom = Number($("schema-zoom").value) || 1;
     const container = $("canvas-zoom-container");
-    container.style.width = totalWidth + "px";
-    container.style.height = totalHeight + "px";
+    container.style.width = maxX + "px";
+    container.style.height = maxY + "px";
     container.style.transform = `scale(${zoom})`;
 
-    // 1. Draw SVG Relationships Layer
+    // SVG Layer setup
     const rootSvg = $("schema-diagram");
     rootSvg.replaceChildren();
-    rootSvg.setAttribute("viewBox", `0 0 ${totalWidth} ${totalHeight}`);
-    rootSvg.setAttribute("width", String(totalWidth));
-    rootSvg.setAttribute("height", String(totalHeight));
+    rootSvg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
+    rootSvg.setAttribute("width", String(maxX));
+    rootSvg.setAttribute("height", String(maxY));
 
     const defs = svg("defs");
     const marker = svg("marker", {
@@ -116,61 +240,11 @@
     defs.append(marker);
     rootSvg.append(defs);
 
-    for (const r of data.relationships) {
-      const posA = positions.get(r.source);
-      const posB = positions.get(r.target);
-      if (!posA || !posB) continue;
-
-      const tSource = tables.find((t) => t.name === r.source);
-      const tTarget = tables.find((t) => t.name === r.target);
-      const idxA = tSource ? tSource.columns.findIndex((c) => r.columns.includes(c.name)) : 0;
-      const idxB = tTarget ? tTarget.columns.findIndex((c) => r.targetColumns.includes(c.name)) : 0;
-
-      const clampIdxA = Math.min(Math.max(0, idxA), 11);
-      const clampIdxB = Math.min(Math.max(0, idxB), 11);
-
-      const y1 = posA.y + 42 + clampIdxA * 27 + 13.5;
-      const y2 = posB.y + 42 + clampIdxB * 27 + 13.5;
-
-      let x1, x2, pathD;
-      if (r.source === r.target) {
-        x1 = posA.x + CARD_WIDTH;
-        x2 = posA.x + CARD_WIDTH;
-        pathD = `M ${x1} ${y1} C ${x1 + 65} ${y1 - 35}, ${x2 + 65} ${y2 + 35}, ${x2} ${y2}`;
-      } else if (posA.x <= posB.x) {
-        x1 = posA.x + CARD_WIDTH;
-        x2 = posB.x;
-        const dx = Math.max(45, Math.abs(x2 - x1) * 0.45);
-        pathD = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-      } else {
-        x1 = posA.x;
-        x2 = posB.x + CARD_WIDTH;
-        const dx = Math.max(45, Math.abs(x2 - x1) * 0.45);
-        pathD = `M ${x1} ${y1} C ${x1 - dx} ${y1}, ${x2 + dx} ${y2}, ${x2} ${y2}`;
-      }
-
-      const path = svg("path", {
-        d: pathD,
-        class: "fk-line",
-        "data-source": r.source,
-        "data-target": r.target,
-        "marker-end": "url(#fk-arrow)",
-      });
-      path.append(
-        svg(
-          "title",
-          {},
-          `${r.name}: ${r.source}(${r.columns.join(",")}) → ${r.target}(${r.targetColumns.join(",")})`,
-        ),
-      );
-      rootSvg.append(path);
-    }
-
-    // 2. Draw HTML Table Cards Layer
+    // Nodes Layer setup
     const nodesLayer = $("schema-nodes-layer");
     nodesLayer.replaceChildren();
 
-    for (const t of tables) {
+    for (const t of activeTables) {
       const pos = positions.get(t.name);
       const isSelected = t.name === selected;
       const card = node("div");
@@ -180,16 +254,14 @@
       card.style.width = CARD_WIDTH + "px";
       card.setAttribute("data-table", t.name);
 
-      // Card Header
+      // Card Header (Drag handle)
       const header = node("div");
       header.className = "schema-card-header";
+      header.title = "Drag to reposition table";
 
       const headerLeft = node("div");
       headerLeft.className = "card-header-left";
-      headerLeft.append(
-        node("span", "▦"),
-        node("span", t.name)
-      );
+      headerLeft.append(node("span", "▦"), node("span", t.name));
       headerLeft.querySelector("span:first-child").className = "card-icon";
       headerLeft.querySelector("span:last-child").className = "card-name";
 
@@ -213,6 +285,45 @@
       headerRight.append(badge, queryBtn);
       header.append(headerLeft, headerRight);
       card.append(header);
+
+      // Drag and Drop Logic
+      header.addEventListener("mousedown", (e) => {
+        if (e.target.closest("button")) return;
+        e.preventDefault();
+        select(t.name);
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const origPos = { x: pos.x, y: pos.y };
+        const currentZoom = Number($("schema-zoom")?.value) || 1;
+
+        card.classList.add("dragging");
+        document.body.style.cursor = "grabbing";
+
+        const onMouseMove = (ev) => {
+          const dx = (ev.clientX - startX) / currentZoom;
+          const dy = (ev.clientY - startY) / currentZoom;
+          pos.x = Math.max(10, origPos.x + dx);
+          pos.y = Math.max(10, origPos.y + dy);
+
+          card.style.left = pos.x + "px";
+          card.style.top = pos.y + "px";
+
+          // Real-time cable redraw
+          drawRelationshipLines();
+        };
+
+        const onMouseUp = () => {
+          card.classList.remove("dragging");
+          document.body.style.cursor = "";
+          window.removeEventListener("mousemove", onMouseMove);
+          window.removeEventListener("mouseup", onMouseUp);
+          savePositions();
+        };
+
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+      });
 
       // Columns list
       const colContainer = node("div");
@@ -256,8 +367,12 @@
 
       card.append(colContainer);
 
-      // Card Events
-      card.onclick = () => select(t.name);
+      card.onclick = (e) => {
+        if (!e.target.closest("button")) {
+          select(t.name);
+        }
+      };
+
       card.ondblclick = () => {
         location.href = "/tables/" + encodeURIComponent(t.name);
       };
@@ -270,12 +385,16 @@
       };
       card.onmouseleave = () => {
         rootSvg.querySelectorAll(".fk-line.highlight").forEach((p) => {
-          p.classList.remove("highlight");
+          if (!p.getAttribute("class")?.includes("highlight-persistent")) {
+            p.classList.remove("highlight");
+          }
         });
       };
 
       nodesLayer.append(card);
     }
+
+    drawRelationshipLines();
   }
 
   function relationships() {
@@ -311,8 +430,15 @@
     selected = name;
     const current = ++version;
     sidebar();
-    draw();
+
+    // Update selected styles on cards
+    document.querySelectorAll(".schema-card").forEach((c) => {
+      c.classList.toggle("selected", c.getAttribute("data-table") === name);
+    });
+
+    drawRelationshipLines();
     relationships();
+
     history.replaceState(null, "", "/schema?table=" + encodeURIComponent(name));
     $("definition-title").textContent = name;
     $("browse-table").href = "/tables/" + encodeURIComponent(name);
@@ -390,6 +516,13 @@
   $("schema-search").oninput = sidebar;
   $("schema-scope").onchange = draw;
   $("schema-zoom").onchange = draw;
+  if ($("schema-lines-mode")) $("schema-lines-mode").onchange = drawRelationshipLines;
+  if ($("btn-auto-layout")) {
+    $("btn-auto-layout").onclick = () => {
+      clearSavedPositions();
+      draw();
+    };
+  }
   $("schema-refresh").onclick = refresh;
   refresh();
 })();
