@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>SQL Schema Visualizer · UAV PMS</title>
-    <link rel="stylesheet" href="/assets/style.css?v=3" />
-    <link rel="stylesheet" href="/assets/schema.css?v=3" />
-    <script src="/assets/side-sql.js?v=3" defer></script>
-    <script src="/assets/schema.js?v=3" defer></script>
+    <link rel="stylesheet" href="/assets/style.css?v=8" />
+    <link rel="stylesheet" href="/assets/schema.css?v=8" />
+    <script src="/assets/side-sql.js?v=8" defer></script>
+    <script src="/assets/schema.js?v=8" defer></script>
   </head>
   <body>
     <div class="workspace">
@@ -54,15 +54,15 @@
           <label>
             View
             <select id="schema-scope">
-              <option value="all">All tables</option>
-              <option value="related" selected>Selected + neighbors</option>
+              <option value="all" selected>All tables</option>
+              <option value="related">Selected + neighbors</option>
             </select>
           </label>
           <label>
             Lines
             <select id="schema-lines-mode">
-              <option value="selected" selected>⚡ Focus Selected</option>
-              <option value="all">Show All</option>
+              <option value="all" selected>Show All (Focus on hover)</option>
+              <option value="selected">⚡ Focus Selected Only</option>
               <option value="none">Hide Lines</option>
             </select>
           </label>

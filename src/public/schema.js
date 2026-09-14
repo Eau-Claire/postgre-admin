@@ -14,7 +14,7 @@
     return e;
   };
 
-  const POSITIONS_KEY = "uavpms_schema_positions_manhattan_v1";
+  const POSITIONS_KEY = "uavpms_schema_positions_manhattan_v2";
   const CARD_WIDTH = 250;
   const COL_PITCH = 340;
   const ROW_GAP = 36;
@@ -60,12 +60,15 @@
 
   function sidebar() {
     const list = $("schema-tables");
+    if (!list) return;
     list.replaceChildren();
-    const query = $("schema-search").value.toLowerCase();
-    const visible = data.tables.filter((t) =>
-      t.name.toLowerCase().includes(query),
+    const query = ($("schema-search")?.value || "").toLowerCase();
+    const visible = (data.tables || []).filter((t) =>
+      (t.name || "").toLowerCase().includes(query),
     );
-    $("schema-table-count").textContent = String(visible.length);
+    const countEl = $("schema-table-count");
+    if (countEl) countEl.textContent = String(visible.length);
+
     for (const t of visible) {
       const b = node("button", t.name);
       b.className = t.name === selected ? "active" : "";
@@ -79,6 +82,8 @@
 
   // Hierarchical DAG column layout (mimics Supabase clean arrangement)
   function computeHierarchicalLayout(tables) {
+    if (!tables || !tables.length) return;
+
     const outgoing = new Map();
     const incoming = new Map();
     for (const t of tables) {
@@ -86,32 +91,28 @@
       incoming.set(t.name, new Set());
     }
 
-    for (const r of data.relationships) {
+    for (const r of data.relationships || []) {
       if (outgoing.has(r.source) && incoming.has(r.target) && r.source !== r.target) {
         outgoing.get(r.source).add(r.target);
         incoming.get(r.target).add(r.source);
       }
     }
 
-    // Assign layers (0 = referencing child, 1 = intermediate, 2 = referenced parent)
-    const layers = new Map();
-    for (const t of tables) {
-      if (outgoing.get(t.name).size === 0 && incoming.get(t.name).size > 0) {
-        layers.set(t.name, 2);
-      } else if (outgoing.get(t.name).size > 0 && incoming.get(t.name).size > 0) {
-        layers.set(t.name, 1);
-      } else {
-        layers.set(t.name, 0);
-      }
-    }
-
     const layerBuckets = [[], [], []];
     for (const t of tables) {
-      const l = layers.get(t.name) ?? 0;
+      const outDeg = outgoing.get(t.name)?.size || 0;
+      const inDeg = incoming.get(t.name)?.size || 0;
+      let l = 0;
+      if (outDeg === 0 && inDeg > 0) {
+        l = 2; // Parent referenced table (e.g. buckets/users)
+      } else if (outDeg > 0 && inDeg > 0) {
+        l = 1; // Middle table
+      } else {
+        l = 0; // Leaf or independent table
+      }
       layerBuckets[l].push(t);
     }
 
-    // Evenly distribute if single column
     if (layerBuckets[1].length === 0 && layerBuckets[2].length === 0 && layerBuckets[0].length > 3) {
       const all = layerBuckets[0];
       layerBuckets[0] = all.slice(0, Math.ceil(all.length / 3));
@@ -123,7 +124,7 @@
     layerBuckets.forEach((bucket, colIdx) => {
       let currentY = 40;
       bucket.forEach((t) => {
-        const colCount = Math.min(t.columns.length, 14);
+        const colCount = Math.min((t.columns || []).length, 14);
         const cardHeight = 34 + colCount * 28 + 8;
         positions.set(t.name, {
           x: startX + colIdx * COL_PITCH,
@@ -135,9 +136,9 @@
     });
   }
 
-  // Orthogonal stepped Manhattan path with 90° rounded corners (exact match to user image)
+  // Orthogonal stepped Manhattan path with 90° rounded corners
   function buildOrthogonalPath(x1, y1, x2, y2) {
-    const r = 5; // corner radius
+    const r = 5;
     const dy = y2 - y1;
     const dx = x2 - x1;
 
@@ -178,7 +179,7 @@
     const rootSvg = $("schema-diagram");
     if (!rootSvg) return;
 
-    const linesMode = $("schema-lines-mode")?.value || "selected";
+    const linesMode = $("schema-lines-mode")?.value || "all";
     const defs = rootSvg.querySelector("defs");
     rootSvg.replaceChildren();
     if (defs) rootSvg.append(defs);
@@ -187,7 +188,7 @@
 
     const activeTable = hoveredTable || selected;
 
-    for (const r of data.relationships) {
+    for (const r of data.relationships || []) {
       const posA = positions.get(r.source);
       const posB = positions.get(r.target);
       if (!posA || !posB) continue;
@@ -200,11 +201,15 @@
 
       const tSource = data.tables.find((t) => t.name === r.source);
       const tTarget = data.tables.find((t) => t.name === r.target);
-      const idxA = tSource ? tSource.columns.findIndex((c) => r.columns.includes(c.name)) : 0;
-      const idxB = tTarget ? tTarget.columns.findIndex((c) => r.targetColumns.includes(c.name)) : 0;
 
-      const clampIdxA = Math.min(Math.max(0, idxA), 13);
-      const clampIdxB = Math.min(Math.max(0, idxB), 13);
+      const rCols = Array.isArray(r.columns) ? r.columns : [];
+      const rTargetCols = Array.isArray(r.targetColumns) ? r.targetColumns : [];
+
+      const idxA = tSource ? tSource.columns.findIndex((c) => rCols.includes(c.name)) : 0;
+      const idxB = tTarget ? tTarget.columns.findIndex((c) => rTargetCols.includes(c.name)) : 0;
+
+      const clampIdxA = Math.min(Math.max(0, idxA >= 0 ? idxA : 0), 13);
+      const clampIdxB = Math.min(Math.max(0, idxB >= 0 ? idxB : 0), 13);
 
       const y1 = posA.y + 34 + clampIdxA * 28 + 14;
       const y2 = posB.y + 34 + clampIdxB * 28 + 14;
@@ -250,7 +255,7 @@
         svg(
           "title",
           {},
-          `${r.name}: ${r.source}(${r.columns.join(",")}) → ${r.target}(${r.targetColumns.join(",")})`,
+          `${r.name || "fk"}: ${r.source}(${rCols.join(",")}) → ${r.target}(${rTargetCols.join(",")})`,
         ),
       );
 
@@ -259,14 +264,14 @@
   }
 
   function draw() {
-    if (!data.tables.length) return;
+    if (!data.tables || !data.tables.length) return;
 
     const scope = $("schema-scope")?.value || "all";
     let activeTables = data.tables;
 
     if (scope === "related" && selected) {
       const relatedNames = new Set([selected]);
-      data.relationships.forEach((r) => {
+      (data.relationships || []).forEach((r) => {
         if (r.source === selected) relatedNames.add(r.target);
         if (r.target === selected) relatedNames.add(r.source);
       });
@@ -279,18 +284,21 @@
     if (!hasSaved) {
       computeHierarchicalLayout(activeTables);
     } else {
-      for (const t of activeTables) {
-        const colCount = Math.min(t.columns.length, 14);
+      activeTables.forEach((t, idx) => {
+        const colCount = Math.min((t.columns || []).length, 14);
         const cardHeight = 34 + colCount * 28 + 8;
         if (saved[t.name]) {
           positions.set(t.name, { x: saved[t.name].x, y: saved[t.name].y, h: cardHeight });
         } else {
-          positions.set(t.name, { x: 50, y: 40, h: cardHeight });
+          positions.set(t.name, {
+            x: 50 + (idx % 3) * COL_PITCH,
+            y: 40 + Math.floor(idx / 3) * 220,
+            h: cardHeight,
+          });
         }
-      }
+      });
     }
 
-    // Bounds calculation
     let maxX = 850;
     let maxY = 600;
     for (const p of positions.values()) {
@@ -300,19 +308,22 @@
 
     const zoom = Number($("schema-zoom")?.value) || 1;
     const container = $("canvas-zoom-container");
-    container.style.width = maxX + "px";
-    container.style.height = maxY + "px";
-    container.style.transform = `scale(${zoom})`;
+    if (container) {
+      container.style.width = maxX + "px";
+      container.style.height = maxY + "px";
+      container.style.transform = `scale(${zoom})`;
+    }
 
-    // SVG Layer Setup
     const rootSvg = $("schema-diagram");
-    rootSvg.replaceChildren();
-    rootSvg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
-    rootSvg.setAttribute("width", String(maxX));
-    rootSvg.setAttribute("height", String(maxY));
+    if (rootSvg) {
+      rootSvg.replaceChildren();
+      rootSvg.setAttribute("viewBox", `0 0 ${maxX} ${maxY}`);
+      rootSvg.setAttribute("width", String(maxX));
+      rootSvg.setAttribute("height", String(maxY));
+    }
 
-    // Nodes Layer
     const nodesLayer = $("schema-nodes-layer");
+    if (!nodesLayer) return;
     nodesLayer.replaceChildren();
 
     for (const t of activeTables) {
@@ -327,7 +338,7 @@
       card.style.width = CARD_WIDTH + "px";
       card.setAttribute("data-table", t.name);
 
-      // Card Header: Solid emerald green banner matching Supabase screenshot
+      // Card Header
       const header = node("div");
       header.className = "schema-card-header";
 
@@ -391,9 +402,9 @@
       const colContainer = node("div");
       colContainer.className = "schema-card-columns";
 
-      t.columns.forEach((c) => {
-        const isFk = data.relationships.some(
-          (r) => r.source === t.name && r.columns.includes(c.name),
+      (t.columns || []).forEach((c) => {
+        const isFk = (data.relationships || []).some(
+          (r) => r.source === t.name && Array.isArray(r.columns) && r.columns.includes(c.name),
         );
 
         const row = node("div");
@@ -406,7 +417,6 @@
         iconsGroup.className = "col-icons";
 
         if (c.pk) {
-          // Key icon + non-null diamond + identity hash
           const keyIcon = node("span", "⚿");
           keyIcon.className = "icon-key";
           const notNullIcon = node("span", "◆");
@@ -447,7 +457,6 @@
         location.href = "/tables/" + encodeURIComponent(t.name);
       };
 
-      // Hover cable highlighting & isolated focus
       card.onmouseenter = () => {
         hoveredTable = t.name;
         highlightConnections(t.name);
@@ -474,7 +483,7 @@
     }
 
     const connected = new Set();
-    data.relationships.forEach((r) => {
+    (data.relationships || []).forEach((r) => {
       if (r.source === tableName) connected.add(r.target);
       if (r.target === tableName) connected.add(r.source);
     });
@@ -488,32 +497,33 @@
   }
 
   function relationships() {
-    $("schema-relations").replaceChildren();
-    const links = data.relationships.filter(
+    const relEl = $("schema-relations");
+    if (!relEl) return;
+    relEl.replaceChildren();
+
+    const links = (data.relationships || []).filter(
       (r) => r.source === selected || r.target === selected,
     );
     for (const r of links) {
       const card = node("div");
       card.className = "relation-card";
+      const rCols = Array.isArray(r.columns) ? r.columns.join(", ") : "";
+      const rTargetCols = Array.isArray(r.targetColumns) ? r.targetColumns.join(", ") : "";
       card.append(
-        node("strong", r.name),
-        node(
-          "p",
-          `${r.source} (${r.columns.join(", ")}) → ${r.targetSchema}.${r.target} (${r.targetColumns.join(", ")})`,
-        ),
+        node("strong", r.name || "foreign_key"),
+        node("p", `${r.source} (${rCols}) → ${r.targetSchema || "public"}.${r.target} (${rTargetCols})`),
       );
-      const other = r.source === selected ? r.target : r.source,
-        b = node("button", "Inspect " + other);
+      const other = r.source === selected ? r.target : r.source;
+      const b = node("button", "Inspect " + other);
       b.type = "button";
       b.className = "btn-xs";
       b.onclick = () => select(other);
       card.append(b);
-      $("schema-relations").append(card);
+      relEl.append(card);
     }
-    if (!links.length)
-      $("schema-relations").append(
-        node("p", "No foreign keys between accessible public tables."),
-      );
+    if (!links.length) {
+      relEl.append(node("p", "No foreign keys between accessible public tables."));
+    }
   }
 
   async function select(name) {
@@ -529,12 +539,12 @@
     relationships();
 
     history.replaceState(null, "", "/schema?table=" + encodeURIComponent(name));
-    $("definition-title").textContent = name;
-    $("browse-table").href = "/tables/" + encodeURIComponent(name);
-    $("schema-sql").textContent = "";
-    $("schema-indexes").textContent = "";
-    $("schema-enums").replaceChildren();
-    $("definition-status").textContent = "Loading definition…";
+    if ($("definition-title")) $("definition-title").textContent = name;
+    if ($("browse-table")) $("browse-table").href = "/tables/" + encodeURIComponent(name);
+    if ($("schema-sql")) $("schema-sql").textContent = "";
+    if ($("schema-indexes")) $("schema-indexes").textContent = "";
+    if ($("schema-enums")) $("schema-enums").replaceChildren();
+    if ($("definition-status")) $("definition-status").textContent = "Loading definition…";
 
     const queryTableBtn = $("btn-query-table");
     if (queryTableBtn) {
@@ -546,28 +556,33 @@
     }
 
     try {
-      const d = await get(
-        "/api/tables/" + encodeURIComponent(name) + "/definition",
-      );
+      const d = await get("/api/tables/" + encodeURIComponent(name) + "/definition");
       if (current !== version) return;
-      $("schema-sql").textContent = d.sql;
-      $("schema-indexes").textContent =
-        d.indexes.map((i) => i.definition + ";").join("\n\n") || "No indexes.";
-      for (const c of d.columns.filter((c) => c.options.length))
-        $("schema-enums").append(
-          node("p", `${c.name}: ${c.options.join(", ")}`),
-        );
-      if (!$("schema-enums").hasChildNodes())
-        $("schema-enums").append(node("p", "No PostgreSQL enum columns."));
-      $("definition-status").textContent = "";
+      if ($("schema-sql")) $("schema-sql").textContent = d.sql || "";
+      if ($("schema-indexes")) {
+        $("schema-indexes").textContent =
+          (d.indexes || []).map((i) => i.definition + ";").join("\n\n") || "No indexes.";
+      }
+      if ($("schema-enums")) {
+        for (const c of (d.columns || []).filter((c) => c.options && c.options.length)) {
+          $("schema-enums").append(node("p", `${c.name}: ${c.options.join(", ")}`));
+        }
+        if (!$("schema-enums").hasChildNodes()) {
+          $("schema-enums").append(node("p", "No PostgreSQL enum columns."));
+        }
+      }
+      if ($("definition-status")) $("definition-status").textContent = "";
     } catch (e) {
-      if (current === version) $("definition-status").textContent = e.message;
+      if (current === version && $("definition-status")) {
+        $("definition-status").textContent = e.message;
+      }
     }
   }
 
-  // Setup background click-and-drag panning
   function setupCanvasPanning() {
     const canvas = $("schema-canvas");
+    if (!canvas) return;
+
     let isPanning = false;
     let startX = 0, startY = 0, scrollLeft = 0, scrollTop = 0;
 
@@ -586,62 +601,87 @@
     canvas.addEventListener("mousemove", (e) => {
       if (!isPanning) return;
       e.preventDefault();
-      const x = e.pageX - canvas.offsetLeft;
-      const y = e.pageY - canvas.offsetTop;
-      canvas.scrollLeft = scrollLeft - (x - startX);
-      canvas.scrollTop = scrollTop - (y - startY);
+      canvas.scrollLeft = scrollLeft - (e.pageX - canvas.offsetLeft - startX);
+      canvas.scrollTop = scrollTop - (e.pageY - canvas.offsetTop - startY);
     });
   }
 
   async function refresh() {
     const request = ++refreshVersion;
     ++version;
-    $("schema-status").textContent = "Loading schema…";
-    $("schema-refresh").disabled = true;
+    if ($("schema-status")) $("schema-status").textContent = "Loading schema…";
+    if ($("schema-refresh")) $("schema-refresh").disabled = true;
+
     try {
       const result = await get("/api/schema");
       if (request !== refreshVersion) return;
-      data = result;
-      $("schema-summary").textContent =
-        `${data.tables.length} tables · ${data.relationships.length} foreign keys · public schema`;
-      const requested =
-        selected || new URLSearchParams(location.search).get("table");
-      selected = data.tables.some((t) => t.name === requested)
+      data = result || { tables: [], relationships: [] };
+
+      if ($("schema-summary")) {
+        $("schema-summary").textContent =
+          `${(data.tables || []).length} tables · ${(data.relationships || []).length} foreign keys · public schema`;
+      }
+
+      const requested = selected || new URLSearchParams(location.search).get("table");
+      selected = (data.tables || []).some((t) => t.name === requested)
         ? requested
         : data.tables[0]?.name || "";
+
       sidebar();
       draw();
-      $("schema-status").textContent = data.tables.length
-        ? ""
-        : "No accessible public tables.";
-      if (selected) await select(selected);
-      else {
-        $("schema-sql").textContent = "";
-        $("schema-indexes").textContent = "";
-        $("schema-relations").replaceChildren();
-        $("schema-enums").replaceChildren();
-        $("definition-title").textContent = "Select a table";
-        $("definition-status").textContent = "";
+
+      if ($("schema-status")) {
+        $("schema-status").textContent = (data.tables || []).length ? "" : "No accessible public tables.";
+      }
+
+      if (selected) {
+        await select(selected);
+      } else {
+        if ($("schema-sql")) $("schema-sql").textContent = "";
+        if ($("schema-indexes")) $("schema-indexes").textContent = "";
+        if ($("schema-relations")) $("schema-relations").replaceChildren();
+        if ($("schema-enums")) $("schema-enums").replaceChildren();
+        if ($("definition-title")) $("definition-title").textContent = "Select a table";
+        if ($("definition-status")) $("definition-status").textContent = "";
       }
     } catch (e) {
-      $("schema-status").textContent = e.message;
+      if ($("schema-status")) $("schema-status").textContent = e.message;
     } finally {
-      $("schema-refresh").disabled = false;
+      if ($("schema-refresh")) $("schema-refresh").disabled = false;
     }
   }
 
-  $("schema-search").oninput = sidebar;
-  $("schema-scope").onchange = draw;
-  $("schema-zoom").onchange = draw;
-  if ($("schema-lines-mode")) $("schema-lines-mode").onchange = drawRelationshipLines;
-  if ($("btn-auto-layout")) {
-    $("btn-auto-layout").onclick = () => {
-      clearSavedPositions();
-      draw();
-    };
-  }
-  $("schema-refresh").onclick = refresh;
+  function init() {
+    const searchEl = $("schema-search");
+    if (searchEl) searchEl.oninput = sidebar;
 
-  setupCanvasPanning();
-  refresh();
+    const scopeEl = $("schema-scope");
+    if (scopeEl) scopeEl.onchange = draw;
+
+    const zoomEl = $("schema-zoom");
+    if (zoomEl) zoomEl.onchange = draw;
+
+    const linesModeEl = $("schema-lines-mode");
+    if (linesModeEl) linesModeEl.onchange = drawRelationshipLines;
+
+    const autoLayoutBtn = $("btn-auto-layout");
+    if (autoLayoutBtn) {
+      autoLayoutBtn.onclick = () => {
+        clearSavedPositions();
+        draw();
+      };
+    }
+
+    const refreshBtn = $("schema-refresh");
+    if (refreshBtn) refreshBtn.onclick = refresh;
+
+    setupCanvasPanning();
+    refresh();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 })();
