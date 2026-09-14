@@ -1062,3 +1062,46 @@ th.checkbox-cell input, td.checkbox-cell input {
   border-radius: 6px;
   background: #fff;
 }
+
+/* --- Side SQL Close Button & Backdrop --- */
+
+.side-sql-close-btn {
+  background: #ffffff;
+  border: 1px solid #c4ded0;
+  color: #1e3b2e;
+  font-size: 15px;
+  font-weight: 700;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.side-sql-close-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+  transform: scale(1.05);
+}
+
+.side-sql-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(14, 30, 22, 0.28);
+  backdrop-filter: blur(1.5px);
+  z-index: 998;
+  cursor: pointer;
+}
+
+.side-sql-backdrop[hidden] {
+  display: none !important;
+}

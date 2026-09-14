@@ -66,36 +66,54 @@
 
   function openDrawer(initialQuery) {
     const drawer = $("side-sql-drawer");
+    const backdrop = $("side-sql-backdrop");
     if (!drawer) return;
     restoreSavedWidth();
+
     drawer.removeAttribute("hidden");
-    // Small timeout to allow transition
+    drawer.style.display = "flex";
+
+    if (backdrop) {
+      backdrop.removeAttribute("hidden");
+      backdrop.style.display = "block";
+    }
+
     requestAnimationFrame(() => {
       drawer.classList.add("open");
     });
+
     const input = $("side-sql-input");
     if (input) {
       if (initialQuery) input.value = initialQuery;
-      setTimeout(() => input.focus(), 150);
+      setTimeout(() => input.focus(), 100);
     }
     renderHistory();
   }
 
   function closeDrawer() {
     const drawer = $("side-sql-drawer");
+    const backdrop = $("side-sql-backdrop");
     if (!drawer) return;
+
     drawer.classList.remove("open");
+    if (backdrop) {
+      backdrop.style.display = "none";
+      backdrop.setAttribute("hidden", "");
+    }
+
     setTimeout(() => {
       if (!drawer.classList.contains("open")) {
+        drawer.style.display = "none";
         drawer.setAttribute("hidden", "");
       }
-    }, 250);
+    }, 220);
   }
 
   function toggleDrawer() {
     const drawer = $("side-sql-drawer");
     if (!drawer) return;
-    if (drawer.classList.contains("open") && !drawer.hasAttribute("hidden")) {
+    const isOpen = drawer.classList.contains("open") && drawer.style.display !== "none" && !drawer.hasAttribute("hidden");
+    if (isOpen) {
       closeDrawer();
     } else {
       openDrawer();
@@ -190,12 +208,10 @@
       }
 
       if (data.fields && data.fields.length > 0) {
-        // Tabular result
         if (rowCountEl) rowCountEl.textContent = (data.rows?.length || 0) + " rows";
         if (exportBtns) exportBtns.hidden = false;
         renderGrid(data);
       } else {
-        // Command result
         if (rowCountEl) rowCountEl.textContent = (data.rowCount ?? 0) + " affected";
         if (exportBtns) exportBtns.hidden = true;
         if (grid) grid.replaceChildren();
@@ -292,6 +308,9 @@
     const closeBtn = $("side-sql-close");
     if (closeBtn) closeBtn.onclick = closeDrawer;
 
+    const backdrop = $("side-sql-backdrop");
+    if (backdrop) backdrop.onclick = closeDrawer;
+
     const clearBtn = $("side-sql-clear");
     if (clearBtn) {
       clearBtn.onclick = () => {
@@ -331,7 +350,7 @@
       templates.onchange = () => {
         const val = templates.value;
         if (!val) return;
-        let tName = tableName;
+        let tName = '"tableName"';
         const titleEl = $("definition-title") || $("table-title");
         if (titleEl && titleEl.textContent && !titleEl.textContent.includes("Select")) {
           tName = `"${titleEl.textContent.trim()}"`;
