@@ -911,19 +911,61 @@ th.checkbox-cell input, td.checkbox-cell input {
   right: 0;
   bottom: 0;
   width: 520px;
+  min-width: 340px;
   max-width: calc(100vw - 20px);
   background: #ffffff;
   border-left: 1px solid var(--line);
-  box-shadow: -8px 0 35px rgba(22, 59, 36, 0.18);
+  box-shadow: -8px 0 35px rgba(22, 59, 36, 0.22);
   z-index: 1000;
   display: flex;
   flex-direction: column;
-  animation: slideDrawer 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes slideDrawer {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+.side-sql-drawer.open {
+  transform: translateX(0);
+}
+
+.side-sql-drawer[hidden] {
+  display: none !important;
+}
+
+.side-sql-resizer {
+  position: absolute;
+  top: 0;
+  left: -6px;
+  width: 12px;
+  bottom: 0;
+  cursor: col-resize;
+  z-index: 1002;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.side-sql-resizer::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 40px;
+  background: #c3d9cd;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.side-sql-resizer:hover::after,
+.side-sql-resizer.dragging::after {
+  opacity: 1;
+  background: var(--green);
+}
+
+.side-sql-resizer:hover,
+.side-sql-resizer.dragging {
+  background: rgba(8, 127, 91, 0.15);
 }
 
 .side-sql-header {

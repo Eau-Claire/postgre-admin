@@ -11,6 +11,7 @@
   let csrfToken = "";
   let lastResult = null;
   const HISTORY_KEY = "uavpms_sql_history";
+  const WIDTH_KEY = "uavpms_sql_drawer_width";
 
   function getHistory() {
     try {
@@ -51,15 +52,31 @@
     return csrfToken;
   }
 
+  function restoreSavedWidth() {
+    const drawer = $("side-sql-drawer");
+    if (!drawer) return;
+    const saved = localStorage.getItem(WIDTH_KEY);
+    if (saved) {
+      const num = Number(saved);
+      if (num >= 320 && num <= window.innerWidth - 50) {
+        drawer.style.width = num + "px";
+      }
+    }
+  }
+
   function openDrawer(initialQuery) {
     const drawer = $("side-sql-drawer");
     if (!drawer) return;
-    drawer.hidden = false;
-    drawer.classList.add("open");
+    restoreSavedWidth();
+    drawer.removeAttribute("hidden");
+    // Small timeout to allow transition
+    requestAnimationFrame(() => {
+      drawer.classList.add("open");
+    });
     const input = $("side-sql-input");
     if (input) {
       if (initialQuery) input.value = initialQuery;
-      input.focus();
+      setTimeout(() => input.focus(), 150);
     }
     renderHistory();
   }
@@ -68,17 +85,57 @@
     const drawer = $("side-sql-drawer");
     if (!drawer) return;
     drawer.classList.remove("open");
-    drawer.hidden = true;
+    setTimeout(() => {
+      if (!drawer.classList.contains("open")) {
+        drawer.setAttribute("hidden", "");
+      }
+    }, 250);
   }
 
   function toggleDrawer() {
     const drawer = $("side-sql-drawer");
     if (!drawer) return;
-    if (drawer.hidden) {
-      openDrawer();
-    } else {
+    if (drawer.classList.contains("open") && !drawer.hasAttribute("hidden")) {
       closeDrawer();
+    } else {
+      openDrawer();
     }
+  }
+
+  function setupResizer() {
+    const resizer = $("side-sql-resizer");
+    const drawer = $("side-sql-drawer");
+    if (!resizer || !drawer) return;
+
+    let isDragging = false;
+
+    resizer.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      resizer.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const newWidth = window.innerWidth - e.clientX;
+      const minWidth = 340;
+      const maxWidth = Math.max(minWidth, window.innerWidth - 60);
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
+        drawer.style.width = newWidth + "px";
+        localStorage.setItem(WIDTH_KEY, String(newWidth));
+      }
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isDragging) {
+        isDragging = false;
+        resizer.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    });
   }
 
   async function runQuery() {
@@ -223,6 +280,9 @@
   }
 
   function init() {
+    restoreSavedWidth();
+    setupResizer();
+
     const toggleBtn = $("btn-toggle-side-sql");
     if (toggleBtn) toggleBtn.onclick = toggleDrawer;
 
@@ -307,6 +367,16 @@
 
     const exportJson = $("side-sql-export-json");
     if (exportJson) exportJson.onclick = () => exportResult("json");
+
+    // Close on Escape key
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        const drawer = $("side-sql-drawer");
+        if (drawer && drawer.classList.contains("open")) {
+          closeDrawer();
+        }
+      }
+    });
 
     renderHistory();
   }
