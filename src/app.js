@@ -125,7 +125,7 @@ function createApp({ sessionStore } = {}) {
   );
   app.use("/api", require("./routes/api"));
   app.get(
-    ["/", "/tables", "/tables/:table"],
+    ["/", "/tables", "/tables/:table", "/sql"],
     require("./middleware/auth"),
     (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")),
   );

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Table Editor · UAV PMS</title>
+    <title>Database Workspace · UAV PMS</title>
     <link rel="stylesheet" href="/assets/style.css" />
     <script src="/assets/app.js" defer></script>
   </head>
@@ -13,8 +13,12 @@
         <div class="brand">
           UAV <span>PMS</span><small>DATABASE WORKSPACE</small>
         </div>
-        <a class="schema-link" href="/schema">◇ SQL Schema</a>
-        <div class="sidebar-label">TABLE EDITOR <span>public</span></div>
+        <div class="nav-links">
+          <button id="nav-table-editor" class="schema-link active" type="button">▦ Table Editor</button>
+          <button id="nav-sql-editor" class="schema-link" type="button">⚡ SQL Editor</button>
+          <a class="schema-link" href="/schema">◇ SQL Schema</a>
+        </div>
+        <div class="sidebar-label">TABLES <span id="tables-badge">public</span></div>
         <input
           id="table-search"
           placeholder="Find a table…"
@@ -22,65 +26,164 @@
         />
         <nav id="tables" aria-label="Database tables"></nav>
         <div class="sidebar-bottom">
-          <span class="status-dot"></span> Restricted account<button
-            id="logout"
-          >
-            Sign out
-          </button>
+          <div class="access-info">
+            <span class="status-dot"></span>
+            <span id="access-label">Full Database Access</span>
+          </div>
+          <button id="logout" type="button">Sign out</button>
         </div>
       </aside>
+
       <main>
-        <header>
-          <div>
-            <div class="eyebrow">DATABASE / PUBLIC</div>
-            <h1 id="table-title">Table Editor</h1>
-            <p id="table-detail" class="muted">
-              Choose a table to explore your data.
-            </p>
+        <!-- TABLE EDITOR VIEW -->
+        <section id="view-table-editor" class="view-panel">
+          <header>
+            <div>
+              <div class="eyebrow">DATABASE / PUBLIC</div>
+              <h1 id="table-title">Table Editor</h1>
+              <p id="table-detail" class="muted">
+                Choose a table to explore your data.
+              </p>
+            </div>
+            <div class="header-actions">
+              <details id="export-menu" class="dropdown-menu">
+                <summary class="btn-secondary">📥 Export ▾</summary>
+                <div class="dropdown-content">
+                  <button type="button" id="export-table-csv">Export as CSV</button>
+                  <button type="button" id="export-table-json">Export as JSON</button>
+                </div>
+              </details>
+              <button id="add" class="primary" disabled>＋ Add row</button>
+            </div>
+          </header>
+
+          <div class="toolbar">
+            <form id="filter">
+              <select id="filter-column" aria-label="Filter column">
+                <option value="">All columns</option>
+              </select>
+              <select id="filter-op" aria-label="Filter operator">
+                <option value="contains">contains</option>
+                <option value="eq">equals (=)</option>
+                <option value="neq">not equals (!=)</option>
+                <option value="gt">&gt; greater than</option>
+                <option value="gte">&gt;= greater or equal</option>
+                <option value="lt">&lt; less than</option>
+                <option value="lte">&lt;= less or equal</option>
+                <option value="null">is NULL</option>
+                <option value="notnull">is not NULL</option>
+              </select>
+              <input
+                id="filter-value"
+                placeholder="Filter value…"
+                aria-label="Filter value"
+              />
+              <button type="submit">Apply</button>
+              <button type="button" id="reset">Reset</button>
+            </form>
+            <details id="visibility">
+              <summary>Columns</summary>
+              <div id="column-list"></div>
+            </details>
+            <button id="refresh" aria-label="Refresh table" type="button">↻ Refresh</button>
           </div>
-          <button id="add" class="primary" disabled>＋ Add row</button>
-        </header>
-        <div class="toolbar">
-          <form id="filter">
-            <select id="filter-column" aria-label="Filter column">
-              <option value="">All rows</option></select
-            ><select id="filter-op" aria-label="Filter operator">
-              <option value="contains">contains</option>
-              <option value="eq">equals</option>
-              <option value="null">is NULL</option>
-              <option value="notnull">is not NULL</option></select
-            ><input
-              id="filter-value"
-              placeholder="Filter value…"
-              aria-label="Filter value"
-            /><button>Apply</button
-            ><button type="button" id="reset">Reset</button>
-          </form>
-          <details id="visibility">
-            <summary>Columns</summary>
-            <div id="column-list"></div>
-          </details>
-          <button id="refresh" aria-label="Refresh table">↻ Refresh</button>
-        </div>
-        <p id="notice" class="notice" hidden></p>
-        <div id="message" role="status" aria-live="polite"></div>
-        <div class="grid-wrap" id="grid" aria-busy="false"></div>
-        <footer>
-          <span id="page-info">No table selected</span>
-          <div>
-            <label
-              >Rows
-              <select id="size">
-                <option>25</option>
-                <option>50</option>
-                <option>100</option>
-              </select></label
-            ><button id="prev" disabled>← Previous</button
-            ><button id="next" disabled>Next →</button>
+
+          <!-- BULK ACTIONS FLOATING BAR -->
+          <div id="bulk-bar" class="bulk-bar" hidden>
+            <div class="bulk-info">
+              <span id="bulk-count">0 rows selected</span>
+            </div>
+            <div class="bulk-actions">
+              <button id="bulk-delete-btn" class="danger" type="button">🗑 Delete Selected</button>
+              <button id="bulk-export-csv" class="btn-secondary" type="button">📥 Export CSV</button>
+              <button id="bulk-export-json" class="btn-secondary" type="button">📥 Export JSON</button>
+              <button id="bulk-clear-btn" class="btn-ghost" type="button">✕ Clear</button>
+            </div>
           </div>
-        </footer>
+
+          <p id="notice" class="notice" hidden></p>
+          <div id="message" role="status" aria-live="polite"></div>
+          <div class="grid-wrap" id="grid" aria-busy="false"></div>
+
+          <footer>
+            <span id="page-info">No table selected</span>
+            <div>
+              <label>
+                Rows
+                <select id="size">
+                  <option>25</option>
+                  <option>50</option>
+                  <option>100</option>
+                </select>
+              </label>
+              <button id="prev" disabled type="button">← Previous</button>
+              <button id="next" disabled type="button">Next →</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- SQL EDITOR VIEW -->
+        <section id="view-sql-editor" class="view-panel" hidden>
+          <header>
+            <div>
+              <div class="eyebrow">DATABASE / CONSOLE</div>
+              <h1>SQL Editor</h1>
+              <p class="muted">
+                Execute queries with full PostgreSQL access. Shortcut: <kbd>Ctrl+Enter</kbd>
+              </p>
+            </div>
+            <div class="header-actions">
+              <select id="sql-templates" aria-label="SQL Templates">
+                <option value="">⚡ Templates…</option>
+                <option value="select_all">SELECT * FROM table LIMIT 25</option>
+                <option value="count">SELECT COUNT(*) FROM table</option>
+                <option value="insert">INSERT INTO table VALUES (...)</option>
+                <option value="update">UPDATE table SET ... WHERE ...</option>
+                <option value="delete">DELETE FROM table WHERE ...</option>
+                <option value="create_table">CREATE TABLE ...</option>
+                <option value="explain">EXPLAIN ANALYZE SELECT ...</option>
+              </select>
+              <select id="sql-history" aria-label="Query History">
+                <option value="">🕒 History…</option>
+              </select>
+              <button id="sql-clear" type="button">✕ Clear</button>
+              <button id="sql-run" class="primary" type="button">▶ Run Query</button>
+            </div>
+          </header>
+
+          <div class="sql-editor-container">
+            <textarea
+              id="sql-input"
+              rows="9"
+              placeholder="-- Type your SQL query here...&#10;SELECT * FROM &quot;Users&quot; LIMIT 10;"
+              spellcheck="false"
+            ></textarea>
+            <div class="sql-status-bar">
+              <span id="sql-tip" class="muted">Tip: Select a table in the sidebar to auto-insert name. Press <kbd>Ctrl+Enter</kbd> to run.</span>
+              <div class="sql-metrics">
+                <span id="sql-duration" class="metric-badge" hidden></span>
+                <span id="sql-row-count" class="metric-badge" hidden></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="sql-error" class="error" role="alert" hidden></div>
+          <div id="sql-success-banner" class="notice" hidden></div>
+
+          <div class="sql-results-header" id="sql-results-header" hidden>
+            <h3>Query Results</h3>
+            <div class="header-actions">
+              <button id="sql-export-csv" class="btn-xs" type="button">📥 CSV</button>
+              <button id="sql-export-json" class="btn-xs" type="button">📥 JSON</button>
+            </div>
+          </div>
+
+          <div class="grid-wrap" id="sql-grid" aria-busy="false"></div>
+        </section>
       </main>
     </div>
+
+    <!-- ROW EDIT / INSERT DIALOG -->
     <dialog id="editor">
       <form id="row-form">
         <div class="drawer-header">
@@ -95,11 +198,13 @@
         <div id="fields"></div>
         <p id="editor-error" class="error" role="alert"></p>
         <div class="drawer-footer">
-          <button type="button" id="cancel-editor">Cancel</button
-          ><button class="primary" id="save">Save row</button>
+          <button type="button" id="cancel-editor">Cancel</button>
+          <button class="primary" id="save" type="submit">Save row</button>
         </div>
       </form>
     </dialog>
+
+    <!-- SINGLE DELETE CONFIRMATION DIALOG -->
     <dialog id="delete-dialog">
       <h2>Delete this row?</h2>
       <p>
@@ -108,8 +213,36 @@
       </p>
       <p id="delete-error" class="error" role="alert"></p>
       <div class="dialog-actions">
-        <button id="cancel-delete">Cancel</button
-        ><button id="confirm-delete" class="danger">Delete row</button>
+        <button id="cancel-delete" type="button">Cancel</button>
+        <button id="confirm-delete" class="danger" type="button">Delete row</button>
+      </div>
+    </dialog>
+
+    <!-- BULK DELETE CONFIRMATION DIALOG -->
+    <dialog id="bulk-delete-dialog">
+      <h2>Delete multiple rows?</h2>
+      <p id="bulk-delete-message">
+        You are about to permanently delete 0 selected rows. This action cannot be undone.
+      </p>
+      <p id="bulk-delete-error" class="error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="cancel-bulk-delete" type="button">Cancel</button>
+        <button id="confirm-bulk-delete" class="danger" type="button">Delete rows</button>
+      </div>
+    </dialog>
+
+    <!-- VIEW ROW JSON DIALOG -->
+    <dialog id="json-dialog">
+      <div class="modal-header">
+        <h2>Row Detail (JSON)</h2>
+        <button type="button" id="close-json" aria-label="Close">✕</button>
+      </div>
+      <div class="json-content-wrap">
+        <pre id="json-code"></pre>
+      </div>
+      <div class="dialog-actions">
+        <button id="copy-json" class="primary" type="button">📋 Copy to Clipboard</button>
+        <button id="done-json" type="button">Done</button>
       </div>
     </dialog>
   </body>
