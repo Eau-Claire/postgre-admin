@@ -136,6 +136,7 @@ async function selectTable(name) {
   s.meta = null;
   s.rows = [];
   s.selectedKeys.clear();
+  s.focusKey = null;
   updateBulkBar();
 
   $("grid").replaceChildren();
@@ -158,7 +159,7 @@ async function selectTable(name) {
     $("table-detail").textContent =
       meta.columns.length + " columns" +
       (s.tableCounts[name] !== undefined ? " · about " + s.tableCounts[name] + " rows" : "") +
-      " · double-click a row to edit";
+      " · double-click a cell to edit, select a row and press Delete to remove it";
     $("add").disabled = !meta.permissions.insert;
 
     $("filter-column").replaceChildren(new Option("Filter by column…", ""));
@@ -302,6 +303,122 @@ function syncFilterControls() {
   $("filter-value").hidden = !!list || !needsValue;
 }
 
+// ---------- inline cell editing ----------
+const TEXT_TYPES = ["text", "varchar", "bpchar"];
+const NULL_TOKEN = "\u0000null";
+
+function canInline(c) {
+  return (
+    !!s.meta?.permissions.update &&
+    s.meta.columns.some((x) => x.pk) &&
+    !c.readonly &&
+    !c.pk &&
+    !["json", "jsonb"].includes(c.type)
+  );
+}
+
+function cellControl(c, value) {
+  const list = c.options?.length
+    ? c.options.map((o) => ({ value: o, label: o }))
+    : c.choices?.length
+      ? c.choices
+      : c.type === "bool"
+        ? [{ value: "true", label: "true" }, { value: "false", label: "false" }]
+        : null;
+  if (list) {
+    const sel = el("select");
+    if (c.nullable) sel.add(new Option("NULL", NULL_TOKEN));
+    for (const o of list)
+      sel.add(new Option(o.label && o.label !== o.value ? `${o.label} (${o.value})` : o.value, o.value));
+    const current = c.type === "bool" && value != null ? String(value === "t" || value === "true") : value;
+    if (current != null && ![...sel.options].some((o) => o.value === current))
+      sel.add(new Option(current + " (current)", current));
+    sel.value = current ?? NULL_TOKEN;
+    return sel;
+  }
+  const input = inputFor(c);
+  if (value != null) {
+    if (input.type === "datetime-local" && !Number.isFinite(Date.parse(value))) input.type = "text";
+    input.value =
+      c.type === "timestamptz" && input.type === "datetime-local"
+        ? new Date(value).toISOString().slice(0, -1)
+        : c.type === "timestamp"
+          ? value.replace(" ", "T")
+          : value;
+  }
+  if (c.nullable) input.placeholder = TEXT_TYPES.includes(c.type) ? "Empty text · Ctrl+Del = NULL" : "Empty = NULL";
+  return input;
+}
+
+function startInlineEdit(td, row, c) {
+  if (!canInline(c)) return openEditor(row);
+  if (td.querySelector(".cell-editor")) return;
+  const original = row[c.name];
+  const ctl = cellControl(c, original);
+  ctl.classList.add("cell-editor");
+  td.replaceChildren(ctl);
+  td.classList.add("editing");
+  ctl.focus();
+  if (ctl.select && ctl.tagName === "INPUT") ctl.select();
+
+  const initial = ctl.value;
+  let done = false,
+    forceNull = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    if (!save) return render();
+    let value;
+    if (ctl.tagName === "SELECT") {
+      value = ctl.value === NULL_TOKEN ? null : c.type === "bool" ? ctl.value === "true" : ctl.value;
+    } else if (forceNull || (ctl.value === "" && c.nullable && !TEXT_TYPES.includes(c.type))) {
+      value = null;
+    } else {
+      value = ctl.value;
+      if (c.type === "timestamptz" && ctl.type === "datetime-local" && value) value += "Z";
+    }
+    if (!forceNull && ctl.value === initial) return render();
+    td.classList.add("saving");
+    try {
+      await api(base() + "/rows", {
+        method: "PATCH",
+        body: JSON.stringify({ key: key(row), values: { [c.name]: value } }),
+      });
+      message(`Saved ${c.name}.`);
+      await load();
+    } catch (e) {
+      message(`${c.name}: ${e.message}`, true);
+      render();
+    }
+  };
+  ctl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finish(false);
+    } else if (e.key === "Delete" && e.ctrlKey && c.nullable) {
+      e.preventDefault();
+      forceNull = true;
+      finish(true);
+    }
+    e.stopPropagation();
+  });
+  if (ctl.tagName === "SELECT") ctl.addEventListener("change", () => finish(true));
+  ctl.addEventListener("blur", () => finish(true));
+}
+
+function askDelete() {
+  if (!s.meta?.permissions.delete || !s.meta.columns.some((c) => c.pk)) return;
+  if (s.selectedKeys.size) return $("bulk-delete-btn").click();
+  const row = s.rows.find((r) => keyString(key(r)) === s.focusKey);
+  if (!row) return;
+  s.deleting = row;
+  $("delete-error").textContent = "";
+  $("delete-dialog").showModal();
+}
+
 function render() {
   if (!s.meta) return;
   const table = el("table"),
@@ -428,11 +545,21 @@ function render() {
         td.textContent = value;
       }
       td.title = value ?? "NULL";
+      if (canInline(c)) td.classList.add("editable");
+      td.ondblclick = (e) => {
+        e.stopPropagation();
+        startInlineEdit(td, row, c);
+      };
       tr.append(td);
     }
     if (rowKeyStr && s.selectedKeys.has(rowKeyStr)) tr.classList.add("is-selected");
-    tr.ondblclick = (e) => {
-      if (!e.target.closest("button, input")) openEditor(row);
+    if (rowKeyStr && rowKeyStr === s.focusKey) tr.classList.add("is-focused");
+    tr.onclick = (e) => {
+      if (e.target.closest("button, input, select, .cell-editor")) return;
+      s.focusKey = rowKeyStr || null;
+      s.focusRow = row;
+      for (const r of $("grid").querySelectorAll("tr.is-focused")) r.classList.remove("is-focused");
+      if (rowKeyStr) tr.classList.add("is-focused");
     };
 
     const actions = el("td");
@@ -1177,6 +1304,16 @@ $("sql-input").onkeydown = (e) => {
 
 // Global shortcuts
 document.addEventListener("keydown", (e) => {
+  if (
+    e.key === "Delete" &&
+    s.activeTab === "table" &&
+    !document.querySelector("dialog[open]") &&
+    !e.target.closest("input, textarea, select")
+  ) {
+    e.preventDefault();
+    askDelete();
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "N" || e.key === "n")) {
     if (s.activeTab === "table" && s.meta && s.meta.permissions.insert) {
       e.preventDefault();
