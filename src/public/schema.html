@@ -4,11 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Schema Diagram · UAV PMS</title>
-    <script src="/assets/theme.js?v=12"></script>
-    <link rel="stylesheet" href="/assets/style.css?v=12" />
-    <link rel="stylesheet" href="/assets/schema.css?v=12" />
-    <script src="/assets/side-sql.js?v=12" defer></script>
-    <script src="/assets/schema.js?v=12" defer></script>
+    <script src="/assets/theme.js?v=13"></script>
+    <link rel="stylesheet" href="/assets/style.css?v=13" />
+    <link rel="stylesheet" href="/assets/schema.css?v=13" />
+    <script src="/assets/side-sql.js?v=13" defer></script>
+    <script src="/assets/schema.js?v=13" defer></script>
   </head>
   <body>
     <div class="workspace">
@@ -58,10 +58,10 @@
             <button type="button" data-detail="keys">Keys only</button>
             <button type="button" data-detail="names">Names only</button>
           </div>
-          <label class="check">
-            <input id="schema-focus-lines" type="checkbox" checked />
-            Dim unrelated lines
-          </label>
+          <div class="seg" role="group" aria-label="Relationship lines">
+            <button type="button" data-lines="focus" class="active" title="Only the lines of the selected or hovered table">Selected table's lines</button>
+            <button type="button" data-lines="all">All lines</button>
+          </div>
           <div class="zoom-controls" role="group" aria-label="Zoom">
             <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
             <span id="zoom-label">100%</span>

@@ -223,6 +223,12 @@
 .schema-card.dimmed {
   opacity: 0.45;
 }
+.schema-card.faint {
+  opacity: 0.7;
+}
+.hidden-link {
+  display: none;
+}
 .schema-card.dragging {
   z-index: 50;
   opacity: 0.95;

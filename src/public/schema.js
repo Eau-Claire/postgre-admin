@@ -14,7 +14,7 @@
     return e;
   };
 
-  const LAYOUT_KEY = "uavpms_schema_layout_v3";
+  const LAYOUT_KEY = "uavpms_schema_layout_v4";
   const ZOOM_KEY = "uavpms_schema_zoom_v3";
   const CARD_W = 250;
   const GAP_X = 90; // between dependency layers
@@ -28,6 +28,7 @@
     hovered: "",
     scope: "all",
     detail: "all",
+    lines: "focus", // "focus": only the selected/hovered table's links; "all": every link
     zoom: 1,
     positions: new Map(), // name -> {x, y}
     sizes: new Map(), // name -> {h, anchors: Map(column -> y), headerY}
@@ -217,20 +218,34 @@
       (layers[d] ||= []).push(t.name);
     }
 
-    // Order: most-referenced first in the root layer, then barycentre of parents.
+    // Order: most-referenced first in the root layer, then barycentre sweeps
+    // (down via referenced tables, up via referencing tables) to reduce line crossings.
     const order = new Map();
+    const setOrder = (layer) => layer.forEach((n, i) => order.set(n, i / Math.max(1, layer.length - 1)));
+    const bary = (n, neighbours) => {
+      const idx = [...neighbours].map((t) => order.get(t)).filter((v) => v !== undefined);
+      return idx.length ? idx.reduce((s, v) => s + v, 0) / idx.length : order.get(n) ?? 0.5;
+    };
     layers.forEach((layer, li) => {
       if (!layer) return;
       if (li === 0) layer.sort((a, b) => inc.get(b).size - inc.get(a).size || a.localeCompare(b));
-      else {
-        const bary = (n) => {
-          const idx = [...out.get(n)].map((t) => order.get(t)).filter((v) => v !== undefined);
-          return idx.length ? idx.reduce((s, v) => s + v, 0) / idx.length : Infinity;
-        };
-        layer.sort((a, b) => bary(a) - bary(b) || a.localeCompare(b));
-      }
-      layer.forEach((n, i) => order.set(n, i));
+      else layer.sort((a, b) => bary(a, out.get(a)) - bary(b, out.get(b)) || a.localeCompare(b));
+      setOrder(layer);
     });
+    for (let sweep = 0; sweep < 4; sweep++) {
+      for (let li = layers.length - 2; li >= 0; li--) {
+        const layer = layers[li];
+        if (!layer?.length) continue;
+        layer.sort((a, b) => bary(a, inc.get(a)) - bary(b, inc.get(b)));
+        setOrder(layer);
+      }
+      for (let li = 1; li < layers.length; li++) {
+        const layer = layers[li];
+        if (!layer?.length) continue;
+        layer.sort((a, b) => bary(a, out.get(a)) - bary(b, out.get(b)));
+        setOrder(layer);
+      }
+    }
     isolated.sort((a, b) => a.localeCompare(b));
 
     const heightOf = (n) => state.sizes.get(n)?.h ?? 120;
@@ -387,19 +402,22 @@
 
   function highlight() {
     const focus = state.hovered || state.selected;
-    const dimLines = $("schema-focus-lines").checked;
+    const focusMode = state.lines === "focus";
     const near = focus ? neighbours(focus) : new Set();
     for (const [name, card] of state.cards) {
+      const related = !!focus && (name === focus || near.has(name));
       card.classList.toggle("selected", name === state.selected);
       card.classList.toggle("neighbour", !!focus && near.has(name));
-      card.classList.toggle("dimmed", !!state.hovered && name !== state.hovered && !near.has(name));
+      card.classList.toggle("dimmed", !!state.hovered && !related);
+      card.classList.toggle("faint", focusMode && !!focus && !state.hovered && !related);
       for (const row of card.querySelectorAll(".card-col-row.linked")) row.classList.remove("linked");
     }
     for (const g of $("schema-diagram").querySelectorAll("g")) {
       const on = !!focus && (g.dataset.source === focus || g.dataset.target === focus);
+      g.classList.toggle("hidden-link", focusMode && !on);
       for (const el of g.querySelectorAll(".fk-line, .fk-end")) {
         el.classList.toggle("active", on);
-        el.classList.toggle("faded", dimLines && !!focus && !on);
+        el.classList.toggle("faded", !focusMode && !!focus && !on);
       }
       if (on) g.parentNode.append(g); // draw on top
     }
@@ -705,7 +723,13 @@
     $("schema-search").oninput = sidebar;
     segmented("scope", "scope");
     segmented("detail", "detail");
-    $("schema-focus-lines").onchange = highlight;
+    for (const b of document.querySelectorAll("[data-lines]")) {
+      b.onclick = () => {
+        state.lines = b.dataset.lines;
+        for (const o of document.querySelectorAll("[data-lines]")) o.classList.toggle("active", o === b);
+        highlight();
+      };
+    }
     $("zoom-in").onclick = () => setZoom(state.zoom * 1.15);
     $("zoom-out").onclick = () => setZoom(state.zoom / 1.15);
     $("zoom-fit").onclick = () => fit();
