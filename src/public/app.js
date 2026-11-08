@@ -280,16 +280,30 @@ function filterColumn() {
   return s.meta?.columns.find((c) => c.name === $("filter-column").value) || null;
 }
 
-// The value box becomes a dropdown for columns with a fixed set of values.
+// Status-like columns (enum, CHECK list, or a text code referencing a small
+// lookup table) get a dropdown. IDs stay as a typed value.
+function fixedValues(c) {
+  if (!c) return null;
+  if (c.options?.length) return c.options.map((o) => ({ value: o, label: o }));
+  if (c.choices?.length && TEXT_TYPES.includes(c.type)) return c.choices;
+  return null;
+}
+
+// FK choices are only worth a dropdown when rows have a readable label
+// (e.g. CategoryId -> category name); bare UUID lists are left to typing/search.
+function pickList(c) {
+  const fixed = fixedValues(c);
+  if (fixed) return fixed;
+  if (c.choices?.length && c.choices.some((o) => o.label && o.label !== o.value)) return c.choices;
+  return null;
+}
+
+// The value box becomes a dropdown only for fixed-value columns.
 function syncFilterControls() {
   const c = filterColumn(),
     op = $("filter-op").value,
     needsValue = !["null", "notnull"].includes(op),
-    list = c?.options?.length
-      ? c.options.map((o) => ({ value: o, label: o }))
-      : c?.choices?.length
-        ? c.choices
-        : null;
+    list = fixedValues(c);
   const select = $("filter-value-select");
   if (list && needsValue) {
     const current = select.value;
@@ -318,11 +332,9 @@ function canInline(c) {
 }
 
 function cellControl(c, value) {
-  const list = c.options?.length
-    ? c.options.map((o) => ({ value: o, label: o }))
-    : c.choices?.length
-      ? c.choices
-      : c.type === "bool"
+  const list = pickList(c)
+    ? pickList(c)
+    : c.type === "bool"
         ? [{ value: "true", label: "true" }, { value: "false", label: "false" }]
         : null;
   if (list) {
@@ -539,7 +551,7 @@ function render() {
       if (value === null || value === undefined) {
         td.textContent = "NULL";
         td.className = "null";
-      } else if (c.options?.length || (c.choices?.length && ["text", "varchar", "bpchar"].includes(c.type))) {
+      } else if (fixedValues(c)) {
         td.append(valuePill(c, value));
       } else {
         td.textContent = value;
@@ -645,11 +657,7 @@ $("copy-json").onclick = async () => {
 };
 
 function inputFor(c) {
-  const list = c.options?.length
-    ? c.options.map((o) => ({ value: o, label: o }))
-    : c.choices?.length
-      ? c.choices
-      : null;
+  const list = pickList(c);
   if (list) {
     const select = el("select");
     select.add(new Option("Choose a value…", ""));
@@ -773,7 +781,7 @@ function openEditor(row) {
 
     if (c.fk) {
       f.append(el("small", `References ${c.fk.table}.${c.fk.target}`));
-      if (!readonly && !c.choices?.length && c.fk.width === 1 && c.fk.schema === "public") {
+      if (!readonly && !pickList(c) && c.fk.width === 1 && c.fk.schema === "public") {
         const wrap = el("div"),
           search = el("input"),
           results = el("select"),
