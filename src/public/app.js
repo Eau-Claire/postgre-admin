@@ -119,17 +119,38 @@ function sidebar() {
   }
 }
 
-async function fetchTableCounts() {
-  for (const t of s.tables) {
-    try {
-      const res = await api("/api/tables/" + encodeURIComponent(t.name) + "/count");
-      s.tableCounts[t.name] = res.count;
-      sidebar();
-    } catch {
-      // Ignore count error
+// Counts are exact; they are refreshed on load, after edits, on Refresh and
+// periodically so rows written by the backend show up without a reload.
+let countsRunning = false;
+async function fetchTableCounts(fromTimer = false) {
+  if (countsRunning) return;
+  countsRunning = true;
+  try {
+    const before = s.meta ? s.tableCounts[s.meta.name] : undefined;
+    for (const t of s.tables) {
+      try {
+        const res = await api("/api/tables/" + encodeURIComponent(t.name) + "/count");
+        s.tableCounts[t.name] = res.count;
+      } catch {
+        // Ignore count error
+      }
     }
+    sidebar();
+    if (s.meta && s.tableCounts[s.meta.name] !== undefined) {
+      $("table-detail").textContent =
+        s.meta.columns.length + " columns · " + s.tableCounts[s.meta.name] + " rows" +
+        " · double-click a cell to edit, select a row and press Delete to remove it";
+      if (fromTimer && before !== undefined && before !== s.tableCounts[s.meta.name] && s.activeTab === "table")
+        message("Row count changed to " + s.tableCounts[s.meta.name] + ". Press Refresh to load new rows.");
+    }
+  } finally {
+    countsRunning = false;
   }
 }
+
+setInterval(() => {
+  if (document.visibilityState === "visible" && s.tables.length) fetchTableCounts(true);
+}, 15000);
 
 async function selectTable(name) {
   const generation = ++s.generation;
@@ -1024,7 +1045,10 @@ $("bulk-export-json").onclick = async () => {
 // Toolbar Handlers
 $("add").onclick = () => openEditor();
 $("table-search").oninput = sidebar;
-$("refresh").onclick = load;
+$("refresh").onclick = () => {
+  load();
+  fetchTableCounts();
+};
 
 $("filter-column").onchange = syncFilterControls;
 $("filter-op").onchange = syncFilterControls;
