@@ -4,6 +4,7 @@ const { list, mutate, column, tableSQL, fastCount, bulkDelete, cloneRow, exportD
 const { pool, qi } = require("../db");
 const audit = require("../utils/audit");
 const sqlExecutor = require("../sql");
+const { referenceChoices, labelColumn } = require("../choices");
 
 const wrap = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res)).catch(next);
@@ -45,10 +46,12 @@ router.get(
   }),
 );
 
-// Table schema
+// Table schema (with dropdown choices for small lookup-table references)
 router.get(
   "/tables/:table",
-  wrap(async (req, res) => res.json(await schema(req.params.table))),
+  wrap(async (req, res) =>
+    res.json(await referenceChoices(await schema(req.params.table))),
+  ),
 );
 
 // Table rows list
@@ -111,12 +114,7 @@ router.get(
       throw fail("Reference lookup unavailable");
     const target = await schema(fk.table),
       key = column(target, fk.target);
-    const label =
-      target.columns.find(
-        (c) =>
-          /^(name|title|code|displayname)$/i.test(c.name) &&
-          ["text", "varchar", "bpchar"].includes(c.type),
-      ) || key;
+    const label = labelColumn(target, key);
     const search = req.query.q || "";
     if (typeof search !== "string" || search.length > 200)
       throw fail("Invalid search");

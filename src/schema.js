@@ -38,11 +38,43 @@ async function schema(name) {
     `SELECT has_table_privilege(format('public.%I',$1::text),'INSERT') AS insert, has_table_privilege(format('public.%I',$1::text),'UPDATE') AS update, has_table_privilege(format('public.%I',$1::text),'DELETE') AS delete`,
     [name],
   );
+  const { rows: checks } = await pool.query(
+    `SELECT a.attname AS column, pg_get_constraintdef(c.oid) AS definition
+    FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_namespace n ON n.oid=r.relnamespace
+    JOIN pg_attribute a ON a.attrelid=r.oid AND a.attnum=c.conkey[1]
+    WHERE c.contype='c' AND n.nspname='public' AND r.relname=$1 AND cardinality(c.conkey)=1`,
+    [name],
+  );
   for (const c of columns) {
     c.spatial = ["geometry", "geography", "raster"].includes(c.type);
     c.readonly = c.spatial || c.generated || c.identity;
     c.fk = fks.find((f) => f.column === c.name) || null;
+    c.optionsSource = c.options.length ? "enum" : null;
+    if (!c.options.length) {
+      const allowed = checks
+        .filter((k) => k.column === c.name)
+        .map((k) => checkOptions(k.definition))
+        .find((o) => o.length);
+      if (allowed) {
+        c.options = allowed;
+        c.optionsSource = "check";
+      }
+    }
   }
   return { name, columns, permissions };
 }
-module.exports = { tables, schema, fail };
+// Extracts the allowed literals from a single-column CHECK such as
+// CHECK ("Status" IN ('A','B')), which PostgreSQL stores as = ANY (ARRAY[...]).
+// Anything more complex (AND/NOT/comparisons) is ignored so no wrong list is shown.
+function checkOptions(definition) {
+  if (typeof definition !== "string") return [];
+  if (/\b(AND|NOT|LIKE|SIMILAR)\b|<>|!=|[<>]=?|~/i.test(definition.replace(/'(?:[^']|'')*'/g, "''")))
+    return [];
+  const match = definition.match(/=\s*ANY\s*\(\s*\(?\s*ARRAY\[([\s\S]*?)\]/i);
+  if (!match) return [];
+  const values = [...match[1].matchAll(/'((?:[^']|'')*)'/g)].map((m) =>
+    m[1].replaceAll("''", "'"),
+  );
+  return [...new Set(values)];
+}
+module.exports = { tables, schema, fail, checkOptions };

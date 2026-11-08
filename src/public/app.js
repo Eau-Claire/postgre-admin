@@ -102,8 +102,8 @@ function sidebar() {
     const b = el("button");
     b.className = s.meta?.name === t.name ? "active" : "";
     
-    const nameSpan = el("span", "▦  " + t.name);
-    b.append(nameSpan);
+    b.append(el("span", t.name));
+    b.title = t.name;
 
     if (s.tableCounts[t.name] !== undefined) {
       const badge = el("span", String(s.tableCounts[t.name]));
@@ -156,19 +156,22 @@ async function selectTable(name) {
     
     $("table-title").textContent = name;
     $("table-detail").textContent =
-      meta.columns.length + " columns · public schema" +
-      (s.tableCounts[name] !== undefined ? " · ~" + s.tableCounts[name] + " total rows" : "");
+      meta.columns.length + " columns" +
+      (s.tableCounts[name] !== undefined ? " · about " + s.tableCounts[name] + " rows" : "") +
+      " · double-click a row to edit";
     $("add").disabled = !meta.permissions.insert;
 
-    $("filter-column").replaceChildren(new Option("All columns", ""));
+    $("filter-column").replaceChildren(new Option("Filter by column…", ""));
     for (const c of meta.columns)
       $("filter-column").add(new Option(c.name, c.name));
     $("filter-value").value = "";
+    syncFilterControls();
 
-    $("notice").hidden = false;
-    $("notice").textContent = meta.columns.some((c) => c.pk)
-      ? "Full administrative access. Primary keys enabled for edits, clones and bulk deletions."
-      : "No primary key: row editing/deleting unavailable; sorting may vary.";
+    const hasPk = meta.columns.some((c) => c.pk);
+    $("notice").hidden = hasPk;
+    $("notice").textContent = hasPk
+      ? ""
+      : "This table has no primary key, so rows can be browsed and added but not edited or deleted.";
 
     $("column-list").replaceChildren();
     for (const c of meta.columns) {
@@ -245,6 +248,60 @@ function updateBulkBar() {
   }
 }
 
+function keyTag(kind) {
+  const t = el("span", kind);
+  t.className = "key-tag " + kind.toLowerCase();
+  return t;
+}
+
+function sortMark(arrow) {
+  const m = el("span", arrow);
+  m.className = "sort-mark";
+  return m;
+}
+
+// Colour status-like values by meaning; unknown values stay neutral.
+const TONES = [
+  ["good", /^(confirmed|completed|approved|active|success|succeeded|done|resolved|closed|verified|enabled|true)$/i],
+  ["bad", /^(rejected|failed|failure|cancel+ed|error|deleted|disabled|inactive|blocked|expired|false)$/i],
+  ["wait", /^(pending|inreview|in_review|review|processing|queued|waiting|draft|scheduled|inprogress|in_progress|running|open)$/i],
+];
+
+function valuePill(c, value) {
+  const label = c.choices?.find((o) => o.value === value)?.label;
+  const p = el("span", label && label !== value ? `${label} (${value})` : value);
+  const tone = TONES.find(([, re]) => re.test(String(value).replace(/\s+/g, "")));
+  p.className = "pill" + (tone ? " tone-" + tone[0] : "");
+  return p;
+}
+
+function filterColumn() {
+  return s.meta?.columns.find((c) => c.name === $("filter-column").value) || null;
+}
+
+// The value box becomes a dropdown for columns with a fixed set of values.
+function syncFilterControls() {
+  const c = filterColumn(),
+    op = $("filter-op").value,
+    needsValue = !["null", "notnull"].includes(op),
+    list = c?.options?.length
+      ? c.options.map((o) => ({ value: o, label: o }))
+      : c?.choices?.length
+        ? c.choices
+        : null;
+  const select = $("filter-value-select");
+  if (list && needsValue) {
+    const current = select.value;
+    select.replaceChildren(
+      ...list.map((o) => new Option(o.label === o.value ? o.value : `${o.label} (${o.value})`, o.value)),
+    );
+    if (list.some((o) => o.value === current)) select.value = current;
+    if (op === "contains") $("filter-op").value = "eq";
+  }
+  select.hidden = !(list && needsValue);
+  $("filter-value").hidden = !!list || !needsValue;
+}
+
 function render() {
   if (!s.meta) return;
   const table = el("table"),
@@ -254,10 +311,11 @@ function render() {
     columns = s.meta.columns.filter((c) => !s.hidden.has(c.name));
 
   // Checkbox column header
+  let masterCheck = null;
   if (hasPk) {
     const thCheck = el("th");
     thCheck.className = "checkbox-cell";
-    const masterCheck = el("input");
+    masterCheck = el("input");
     masterCheck.type = "checkbox";
     masterCheck.title = "Select / Deselect all on current page";
 
@@ -288,10 +346,14 @@ function render() {
 
   for (const c of columns) {
     const th = el("th"),
-      b = el(
-        "button",
-        `${c.pk ? "⚿ " : ""}${c.name}${s.sort === c.name ? (s.direction === "asc" ? " ↑" : " ↓") : ""}`,
-      );
+      b = el("button");
+    b.type = "button";
+    if (c.pk) b.append(keyTag("PK"));
+    if (c.fk) b.append(keyTag("FK"));
+    b.append(document.createTextNode(c.name));
+    if (s.sort === c.name)
+      b.append(sortMark(s.direction === "asc" ? "↑" : "↓"));
+    b.title = "Sort by " + c.name;
     b.onclick = () => {
       s.direction = s.sort === c.name && s.direction === "asc" ? "desc" : "asc";
       s.sort = c.name;
@@ -313,7 +375,9 @@ function render() {
     tr.append(th);
   }
 
-  tr.append(el("th", "Actions"));
+  const actionsHead = el("th", "");
+  actionsHead.className = "actions-cell";
+  tr.append(actionsHead);
   head.append(tr);
   table.append(head);
 
@@ -336,6 +400,7 @@ function render() {
         } else {
           s.selectedKeys.delete(rowKeyStr);
         }
+        tr.classList.toggle("is-selected", rowCheck.checked);
         updateBulkBar();
         if (masterCheck) {
           const allSelected =
@@ -352,19 +417,34 @@ function render() {
     }
 
     for (const c of columns) {
-      const td = el("td", row[c.name] ?? "NULL");
-      if (row[c.name] === null) td.className = "null";
-      td.title = row[c.name] ?? "NULL";
+      const value = row[c.name];
+      const td = el("td");
+      if (value === null || value === undefined) {
+        td.textContent = "NULL";
+        td.className = "null";
+      } else if (c.options?.length || (c.choices?.length && ["text", "varchar", "bpchar"].includes(c.type))) {
+        td.append(valuePill(c, value));
+      } else {
+        td.textContent = value;
+      }
+      td.title = value ?? "NULL";
       tr.append(td);
     }
+    if (rowKeyStr && s.selectedKeys.has(rowKeyStr)) tr.classList.add("is-selected");
+    tr.ondblclick = (e) => {
+      if (!e.target.closest("button, input")) openEditor(row);
+    };
 
     const actions = el("td");
     actions.className = "row-actions";
+    const actionsInner = el("div");
+    actionsInner.className = "row-actions-inner";
+    actions.append(actionsInner);
 
     // 1. Edit / Open
     const edit = el("button", "Edit");
     edit.onclick = () => openEditor(row);
-    actions.append(edit);
+    actionsInner.append(edit);
 
     // 2. Clone
     if (hasPk && s.meta.permissions.insert) {
@@ -386,7 +466,7 @@ function render() {
           message("Clone failed: " + e.message, true);
         }
       };
-      actions.append(clone);
+      actionsInner.append(clone);
     }
 
     // 3. View JSON
@@ -394,7 +474,7 @@ function render() {
     jsonBtn.className = "btn-json";
     jsonBtn.title = "View row as JSON";
     jsonBtn.onclick = () => openJsonModal(row);
-    actions.append(jsonBtn);
+    actionsInner.append(jsonBtn);
 
     // 4. Delete
     if (hasPk && s.meta.permissions.delete) {
@@ -405,7 +485,7 @@ function render() {
         $("delete-error").textContent = "";
         $("delete-dialog").showModal();
       };
-      actions.append(del);
+      actionsInner.append(del);
     }
 
     tr.append(actions);
@@ -418,7 +498,7 @@ function render() {
 
 function openJsonModal(rowData) {
   $("json-code").textContent = JSON.stringify(rowData, null, 2);
-  $("copy-json").textContent = "📋 Copy to Clipboard";
+  $("copy-json").textContent = "Copy";
   $("json-dialog").showModal();
 }
 
@@ -428,18 +508,55 @@ $("done-json").onclick = () => $("json-dialog").close();
 $("copy-json").onclick = async () => {
   try {
     await navigator.clipboard.writeText($("json-code").textContent);
-    $("copy-json").textContent = "✓ Copied!";
+    $("copy-json").textContent = "Copied";
     setTimeout(() => {
-      $("copy-json").textContent = "📋 Copy to Clipboard";
+      $("copy-json").textContent = "Copy";
     }, 2000);
   } catch {
-    $("copy-json").textContent = "Failed to copy";
+    $("copy-json").textContent = "Copy failed";
   }
 };
+
+function inputFor(c) {
+  const list = c.options?.length
+    ? c.options.map((o) => ({ value: o, label: o }))
+    : c.choices?.length
+      ? c.choices
+      : null;
+  if (list) {
+    const select = el("select");
+    select.add(new Option("Choose a value…", ""));
+    for (const o of list)
+      select.add(new Option(o.label && o.label !== o.value ? `${o.label} (${o.value})` : o.value, o.value));
+    select.dataset.choice = "true";
+    return select;
+  }
+  if (["json", "jsonb"].includes(c.type) || c.spatial) {
+    const t = el("textarea");
+    t.rows = 5;
+    return t;
+  }
+  const input = el("input");
+  input.type =
+    c.type === "bool"
+      ? "checkbox"
+      : ["int2", "int4", "int8", "numeric", "float4", "float8"].includes(c.type)
+        ? "number"
+        : c.type === "date"
+          ? "date"
+          : ["timestamp", "timestamptz"].includes(c.type)
+            ? "datetime-local"
+            : "text";
+  if (input.type === "number")
+    input.step = ["int2", "int4", "int8"].includes(c.type) ? "1" : "any";
+  if (input.type === "datetime-local") input.step = "any";
+  return input;
+}
 
 function openEditor(row) {
   s.editing = row;
   s.controls = [];
+  $("editor-table").textContent = s.meta.name;
   $("editor-title").textContent = row ? "Edit row" : "Add row";
   $("editor-error").textContent = "";
   $("fields").replaceChildren();
@@ -448,48 +565,37 @@ function openEditor(row) {
   for (let i = 0; i < s.meta.columns.length; i++) {
     const c = s.meta.columns[i],
       f = el("div"),
-      label = el("label", c.name);
+      head = el("div"),
+      label = el("label", c.name),
+      type = el("span", c.description);
     f.className = "field";
+    head.className = "field-head";
+    type.className = "field-type";
     label.htmlFor = "field-" + i;
-    f.append(
-      label,
-      el("small", c.description + (c.spatial ? " · PostGIS, read-only" : "")),
-    );
+    head.append(label);
+    if (c.pk) head.append(keyTag("PK"));
+    if (c.fk) head.append(keyTag("FK"));
+    head.append(type);
+    const required = !row && !c.nullable && !c.default && !c.identity && !c.generated;
+    if (required) {
+      const r = el("span", "required");
+      r.className = "field-required";
+      head.append(r);
+    }
+    f.append(head);
+
     const readonly = c.readonly || (row && c.pk) || !writable,
       mode = el("select");
+    mode.className = "value-mode";
     mode.setAttribute("aria-label", c.name + " value mode");
-    if (row) mode.add(new Option("Keep current value", "omit"));
+    if (row) mode.add(new Option("Keep current", "omit"));
     else if (c.default || c.identity || c.generated)
-      mode.add(new Option("Use database default", "omit"));
-    else if (c.nullable) mode.add(new Option("Leave unset (NULL)", "omit"));
+      mode.add(new Option("Use default", "omit"));
+    else if (c.nullable) mode.add(new Option("Leave unset", "omit"));
     mode.add(new Option("Set value", "value"));
     if (c.nullable) mode.add(new Option("NULL", "null"));
 
-    let input;
-    if (c.options.length) {
-      input = el("select");
-      for (const o of c.options) input.add(new Option(o, o));
-    } else if (["json", "jsonb"].includes(c.type) || c.spatial) {
-      input = el("textarea");
-      input.rows = 5;
-    } else {
-      input = el("input");
-      input.type =
-        c.type === "bool"
-          ? "checkbox"
-          : ["int2", "int4", "int8", "numeric", "float4", "float8"].includes(
-                c.type,
-              )
-            ? "number"
-            : c.type === "date"
-              ? "date"
-              : ["timestamp", "timestamptz"].includes(c.type)
-                ? "datetime-local"
-                : "text";
-      if (input.type === "number")
-        input.step = ["int2", "int4", "int8"].includes(c.type) ? "1" : "any";
-      if (input.type === "datetime-local") input.step = "any";
-    }
+    const input = inputFor(c);
     input.id = "field-" + i;
     const value = row?.[c.name];
     if (
@@ -498,43 +604,59 @@ function openEditor(row) {
       !Number.isFinite(Date.parse(value))
     )
       input.type = "text";
-    if (input.type === "checkbox")
-      input.checked = value === "true" || value === "t";
-    else if (value != null)
+    if (input.type === "checkbox") input.checked = value === "true" || value === "t";
+    else if (value != null) {
+      if (input.dataset.choice && ![...input.options].some((o) => o.value === value))
+        input.add(new Option(value + " (current)", value));
       input.value =
         c.type === "timestamptz" && Number.isFinite(Date.parse(value))
           ? new Date(value).toISOString().slice(0, -1)
           : c.type === "timestamp"
             ? value.replace(" ", "T")
             : value;
+    }
 
-    if (c.type === "timestamptz")
-      f.append(
-        el("small", "Time in UTC. Keep current value preserves full precision."),
-      );
-
+    // Editing a value switches the mode to "Set value" automatically.
     const sync = () => {
-      input.disabled = readonly || mode.value !== "value";
+      input.disabled = readonly || mode.value === "null";
+      input.classList.toggle("untouched", mode.value === "omit");
     };
+    const touch = () => {
+      if (mode.value !== "value" && !readonly) {
+        mode.value = "value";
+        sync();
+      }
+    };
+    input.addEventListener("input", touch);
+    input.addEventListener("change", touch);
     mode.onchange = sync;
     mode.disabled = readonly;
     sync();
 
-    f.append(mode, input);
+    const control = el("div");
+    control.className = "field-control";
+    control.append(input, mode);
+    f.append(control);
     s.controls.push({ c, input, mode });
 
+    if (c.spatial) f.append(el("small", "PostGIS value, read-only here."));
+    if (c.type === "timestamptz") f.append(el("small", "Time in UTC."));
+    if (c.optionsSource === "check")
+      f.append(el("small", "Allowed values come from a CHECK constraint."));
+
     if (c.fk) {
-      f.append(
-        el("small", `References ${c.fk.schema}.${c.fk.table}.${c.fk.target}`),
-      );
-      if (!readonly && c.fk.width === 1 && c.fk.schema === "public") {
-        const search = el("input"),
+      f.append(el("small", `References ${c.fk.table}.${c.fk.target}`));
+      if (!readonly && !c.choices?.length && c.fk.width === 1 && c.fk.schema === "public") {
+        const wrap = el("div"),
+          search = el("input"),
           results = el("select"),
           status = el("small");
-        search.placeholder = "Search referenced rows…";
+        wrap.className = "field-ref";
+        search.type = "search";
+        search.placeholder = "Search " + c.fk.table + "…";
         search.setAttribute("aria-label", "Search " + c.name + " references");
         results.setAttribute("aria-label", "Choose " + c.name + " reference");
-        results.add(new Option("Search to choose a reference", ""));
+        results.add(new Option("Type to search", ""));
         let timer,
           version = 0;
         const url = base() + "/references/" + encodeURIComponent(c.name);
@@ -544,18 +666,16 @@ function openEditor(row) {
           timer = setTimeout(async () => {
             try {
               status.textContent = "Searching…";
-              const data = await api(
-                url + "?q=" + encodeURIComponent(search.value),
-              );
+              const data = await api(url + "?q=" + encodeURIComponent(search.value));
               if (request !== version) return;
-              results.replaceChildren(new Option("Choose a reference", ""));
+              results.replaceChildren(new Option(`${data.options.length} match(es)`, ""));
               for (const o of data.options)
-                results.add(
-                  new Option(`${o.label ?? o.value} · ${o.value}`, o.value),
-                );
+                results.add(new Option(`${o.label ?? o.value} · ${o.value}`, o.value));
               status.textContent = data.options.length
-                ? "Up to 30 results. Refine your search."
-                : "No matching references.";
+                ? data.options.length >= 30
+                  ? "Showing the first 30. Refine your search."
+                  : ""
+                : "No matching rows.";
             } catch (e) {
               if (request === version) status.textContent = e.message;
             }
@@ -563,12 +683,12 @@ function openEditor(row) {
         };
         results.onchange = () => {
           if (results.value) {
-            mode.value = "value";
-            sync();
             input.value = results.value;
+            touch();
           }
         };
-        f.append(search, results, status);
+        wrap.append(search, results);
+        f.append(wrap, status);
       }
     }
     $("fields").append(f);
@@ -589,6 +709,8 @@ $("row-form").onsubmit = async (e) => {
           : input.type === "checkbox"
             ? input.checked
             : input.value;
+      if (value === "" && input.dataset.choice)
+        throw Error(c.name + ": choose a value from the list.");
       if (value !== null && ["json", "jsonb"].includes(c.type)) {
         try {
           JSON.parse(value);
@@ -769,15 +891,23 @@ $("add").onclick = () => openEditor();
 $("table-search").oninput = sidebar;
 $("refresh").onclick = load;
 
+$("filter-column").onchange = syncFilterControls;
+$("filter-op").onchange = syncFilterControls;
+
 $("filter").onsubmit = (e) => {
   e.preventDefault();
-  s.filter = $("filter-column").value
-    ? {
-        column: $("filter-column").value,
-        op: $("filter-op").value,
-        value: $("filter-value").value,
-      }
-    : {};
+  if (!$("filter-column").value) {
+    message("Choose a column to filter by.", true);
+    $("filter-column").focus();
+    return;
+  }
+  const valueBox = $("filter-value-select").hidden ? $("filter-value") : $("filter-value-select");
+  s.filter = {
+    column: $("filter-column").value,
+    op: $("filter-op").value,
+    value: valueBox.value,
+  };
+  $("reset").hidden = false;
   s.page = 1;
   load();
 };
@@ -787,6 +917,8 @@ $("reset").onclick = () => {
   s.page = 1;
   $("filter-column").value = "";
   $("filter-value").value = "";
+  $("reset").hidden = true;
+  syncFilterControls();
   load();
 };
 
@@ -844,7 +976,7 @@ function saveSqlHistory(query) {
 
 function updateHistoryDropdown() {
   const history = getSqlHistory();
-  $("sql-history").replaceChildren(new Option("🕒 History…", ""));
+  $("sql-history").replaceChildren(new Option("History…", ""));
   for (const item of history) {
     const preview = item.replace(/\s+/g, " ").slice(0, 45);
     $("sql-history").add(new Option(preview, item));
@@ -861,7 +993,7 @@ $("sql-history").onchange = () => {
 $("sql-templates").onchange = () => {
   const val = $("sql-templates").value;
   if (!val) return;
-  const tName = s.meta ? `"${s.meta.name}"` : tableName;
+  const tName = s.meta ? `"${s.meta.name}"` : `"table_name"`;
   let snippet = "";
   switch (val) {
     case "select_all":
@@ -938,7 +1070,7 @@ async function runSqlQuery() {
       $("sql-row-count").hidden = false;
       $("sql-grid").replaceChildren();
       $("sql-results-header").hidden = true;
-      $("sql-success-banner").textContent = `✓ Query executed successfully: ${result.command || "COMMAND OK"} (${result.rowCount ?? 0} affected in ${result.durationMs}ms)`;
+      $("sql-success-banner").textContent = `Query executed: ${result.command || "COMMAND OK"} (${result.rowCount ?? 0} affected in ${result.durationMs}ms)`;
       $("sql-success-banner").hidden = false;
       fetchTableCounts();
     }
@@ -1060,7 +1192,7 @@ document.addEventListener("keydown", (e) => {
     const d = await api("/api/tables");
     s.csrf = d.csrf;
     s.tables = d.tables;
-    $("tables-badge").textContent = s.tables.length + " tables";
+    $("tables-badge").textContent = String(s.tables.length);
     sidebar();
     fetchTableCounts();
 

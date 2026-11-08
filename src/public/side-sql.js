@@ -33,7 +33,7 @@
   function renderHistory() {
     const select = $("side-sql-history");
     if (!select) return;
-    select.replaceChildren(new Option("🕒 History…", ""));
+    select.replaceChildren(new Option("History…", ""));
     for (const q of getHistory()) {
       const preview = q.replace(/\s+/g, " ").slice(0, 40);
       select.add(new Option(preview, q));
@@ -216,7 +216,7 @@
         if (exportBtns) exportBtns.hidden = true;
         if (grid) grid.replaceChildren();
         if (successEl) {
-          successEl.textContent = `✓ ${data.command || "COMMAND OK"} (${data.rowCount ?? 0} affected in ${data.durationMs}ms)`;
+          successEl.textContent = `${data.command || "COMMAND OK"} (${data.rowCount ?? 0} affected in ${data.durationMs}ms)`;
           successEl.hidden = false;
         }
       }

@@ -86,3 +86,14 @@ Validation in this change: six query/security unit tests, restricted-account int
 Choose **SQL Schema** in the sidebar to inspect database structure at `/schema`. The read-only diagram shows accessible public tables, primary keys and foreign-key arrows (including composite and self-referencing foreign keys). Select a table to focus on its neighbors, inspect related tables, or switch to all tables and change zoom. The canvas scrolls for larger schemas; the relationship list also exposes the column mappings without relying on the diagram.
 
 The definition panel shows a CREATE TABLE-style catalog reference, constraints, indexes and PostgreSQL enum values, with a link back to the row editor. This is documentation, not a full migration/export: dependent types/sequences, partitions, storage options, policies and grants are not reconstructed. Cross-schema or inaccessible targets are omitted from the diagram; the selected table's constraint definitions may still mention them. The explorer reads catalog metadata only, uses the existing session/account restrictions, and offers no SQL execution or schema modification.
+
+## Fixed-value dropdowns and themes
+
+Columns with a fixed set of values are edited and filtered through a dropdown, and shown as coloured pills in the grid. Values come from the database, never from the UI code:
+- PostgreSQL enum types.
+- Single-column `CHECK ("Col" IN ('A','B',...))` constraints (stored by PostgreSQL as `= ANY (ARRAY[...])`). More complex checks are ignored.
+- Single-column foreign keys to small public tables (50 rows or fewer), labelled by the first readable text column (`Name`, `*Name`, `Code`, `*Code`, `Email`, ...). Larger references keep the search picker.
+
+Example: `ALTER TABLE "DetectedAnomalies" ADD CONSTRAINT "CK_DetectedAnomalies_ValidationStatus" CHECK ("ValidationStatus" IN ('Pending','InReview','Confirmed','Rejected'));`
+
+The sidebar theme button cycles Auto (follows the OS), Light and Dark; the choice is kept per browser. The schema diagram lays out referenced tables on the left and dependants on the right, supports Ctrl + scroll zoom, Fit, keys-only/names-only views, and remembers manually dragged positions for the full view.
